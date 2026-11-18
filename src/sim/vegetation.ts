@@ -268,8 +268,6 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     }
   }
 
-  addGateHedge(hf, collision, (x, z) => builderFor(near, x, z));
-
   for (const [map, shadow] of [
     [near, true],
     [far, false],
@@ -281,42 +279,6 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     }
   }
   return node;
-}
-
-/** 公式アクセシビリティマップ「すずかけ門」写真 7。入構方向の歩道右縁に沿う低木帯。 */
-function addGateHedge(hf: Heightfield, collision: CollisionWorld, meshAt: (x: number, z: number) => MeshBuilder): void {
-  // 植え込みの中心線。門の袖壁の内側から、歩道の折れに沿って高架手前まで。
-  const line = [
-    [-221, -143.1],
-    [-218.4, -140.8],
-    [-206, -133.5],
-  ];
-  const rand = mulberry32(714);
-  for (let i = 1; i < line.length; i++) {
-    const [ax, az] = line[i - 1];
-    const [bx, bz] = line[i];
-    const count = Math.ceil(Math.hypot(bx - ax, bz - az) / 0.65);
-    for (let j = 0; j < count; j++) {
-      const t = (j + 0.5) / count;
-      const x = ax + (bx - ax) * t;
-      const z = az + (bz - az) * t;
-      const y = hf.surfaceAt(x, z);
-      const h = 1.15 + rand() * 0.18;
-      const r = 0.94 + rand() * 0.1;
-      const mb = meshAt(x, z);
-      const shade = 0.78 + rand() * 0.2;
-      mb.color(shade, shade, shade * 0.82, 0.25);
-      mb.setData(0.015, rand() * Math.PI * 2, 0, 0);
-      const rotation = rand() * Math.PI;
-      for (let k = 0; k < 3; k++) {
-        const angle = rotation + (k * Math.PI) / 3;
-        addCard(mb, x, y + h / 2, z, r * Math.cos(angle), 0, r * Math.sin(angle), 0, h * 0.62, 0, x, y, z, 4, k === 1);
-      }
-      // 歩行者の目線から見下ろしたときにも、刈り込んだ葉の上面が続くようにする。
-      addCard(mb, x, y + h * 0.88, z, r, 0, 0, 0, 0.08, r, x, y, z, 4, false);
-      collision.addCircle(x, z, r * 0.75, y + h);
-    }
-  }
 }
 
 /** 樹種ごとの葉の色 (線形 RGB の倍率。テクスチャの緑に掛ける) */
