@@ -185,6 +185,12 @@ export function buildBuildings(
           // 妻側 (建物の短辺方向に走る壁) は、様式によって窓なし・ブレース付きにする
           const across = Math.abs(tx * obb.ax + tz * obb.az) < 0.5;
           const isEnd = style.ends !== 'same' && across && len > 5 && r === part.ring && !cut;
+          if (styleId === 'r3Low' && isEnd && nx < 0 && nz < 0) {
+            // 道路に近い北西妻面の鋼製引き戸。
+            const x = x0 + (x1 - x0) * 0.72;
+            const z = z0 + (z1 - z0) * 0.72;
+            addLoadingDoor(roofs, x, hf.heightAt(x, z), z, tx, tz);
+          }
           const plain = len < 1.1 || isEnd || cut;
           const flag = isEnd && style.ends === 'brace' && len > 12 ? 2 : plain ? 1 : 0;
           const bays = plain ? 1 : Math.max(1, Math.round(len / style.bayW));
@@ -239,8 +245,24 @@ export function buildBuildings(
       }),
     );
   }
-  void hf;
   return { node, facadeMaterials };
+}
+
+/** 引き違い戸の左右の鋼板、縦リブと上レール。外壁のメッシュと干渉しないよう外側へ出す。 */
+function addLoadingDoor(mb: MeshBuilder, x: number, y: number, z: number, tx: number, tz: number): void {
+  const rot = Math.atan2(-tz, tx);
+  const cx = x - tz * 0.08;
+  const cz = z + tx * 0.08;
+  for (const side of [-1, 1]) {
+    mb.color(...linearRgb(side < 0 ? 0xb4b2a8 : 0xc2c0b6));
+    mb.box(cx + tx * side * 1.08, y - 0.08, cz + tz * side * 1.08, 2.14, 3.25, 0.1, rot);
+  }
+  mb.color(...linearRgb(0xa5a399));
+  for (let i = -11; i <= 11; i++) {
+    mb.box(cx + tx * i * 0.18 - tz * 0.06, y, cz + tz * i * 0.18 + tx * 0.06, 0.022, 3.15, 0.025, rot);
+  }
+  mb.color(...linearRgb(0x8a8981));
+  mb.box(cx, y + 3.17, cz, 4.55, 0.12, 0.25, rot);
 }
 
 interface Part {
