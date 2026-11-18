@@ -1,5 +1,6 @@
 import type { CampusExtras } from './extras';
 import type { Heightfield } from './heightfield';
+import { pointInPolygon } from './heightfield';
 import type { WalkSurface } from './player';
 import type { CampusJson, RoadData } from './types';
 
@@ -23,10 +24,15 @@ export class Decks implements WalkSurface {
   readonly spans: DeckSpan[] = [];
   /** トンネルの床や階段など、当たり判定だけの面 */
   private readonly strips: DeckSpan[] = [];
+  /** 水平な台 (ウッドデッキとその踏み段) */
+  private readonly platforms: { ring: number[]; y: number }[] = [];
   private readonly hf: Heightfield;
 
   constructor(json: CampusJson, hf: Heightfield, extras: CampusExtras) {
     this.hf = hf;
+    for (const d of extras.woodDecks) {
+      this.platforms.push({ ring: d.stepRing, y: d.ground + d.height / 2 }, { ring: d.ring, y: d.ground + d.height });
+    }
     for (const s of extras.strips) {
       this.strips.push({ kind: 'strip', width: s.halfWidth * 2, pts: [s.ax, s.az, s.bx, s.bz], ys: [s.ay, s.by] });
     }
@@ -82,6 +88,9 @@ export class Decks implements WalkSurface {
     let best = -Infinity;
     const cap = this.hf.capHeightAt(x, z);
     if (cap <= maxY) best = cap;
+    for (const p of this.platforms) {
+      if (p.y > best && p.y <= maxY && Math.abs(x - p.ring[0]) < 60 && pointInPolygon(x, z, p.ring)) best = p.y;
+    }
     for (const list of [this.spans, this.strips]) {
       for (const span of list) {
         const p = span.pts;

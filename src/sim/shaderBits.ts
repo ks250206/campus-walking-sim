@@ -47,3 +47,24 @@ export const surfaceBit: ShaderBit = {
     },
   },
 };
+
+/**
+ * ウッドデッキ: 板どうしの合わせ目を暗くする (vUV.x = 合わせ目への近さ、vUV.y = 板の幅方向の位置 m)。
+ * 1 ピクセルが合わせ目より粗くなる距離では、縞が干渉してちらつかないよう平均の明るさに寄せる。
+ */
+export const deckBit: ShaderBit = {
+  name: 'cwDeck',
+  requires: [noiseBit],
+  gl: {
+    fragment: {
+      material: /* glsl */ `
+  {
+    float px = fwidth(vUV.y);
+    float fade = 1.0 - smoothstep(0.012, 0.05, px);
+    albedo *= mix(0.95, 1.0 - 0.6 * vUV.x, fade);
+    albedo *= 0.88 + 0.24 * cwFbm(vPosition.xz * 0.4);
+  }
+`,
+    },
+  },
+};

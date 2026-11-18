@@ -3,12 +3,12 @@ import earcut from 'earcut';
 import { CanvasSource, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { Decks } from './decks';
-import type { CampusExtras, StairSpec, TunnelSpec } from './extras';
+import type { CampusExtras, StairSpec, TunnelSpec, WoodDeckSpec } from './extras';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon, signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder, linearRgb } from './meshBuilder';
 import { hash2, mulberry32 } from './rng';
-import { surfaceBit } from './shaderBits';
+import { deckBit, surfaceBit } from './shaderBits';
 import type { AreaData, CampusData, CampusJson, RoadData } from './types';
 
 export interface PropsResult {
@@ -72,6 +72,8 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   addPylons(mb, json, hf);
   for (const t of extras.tunnels) addTunnel(mb, glow, node, t, hf, collision);
   for (const st of extras.stairs) addStairs(mb, st, collision);
+  const boards = new MeshBuilder({ uvs: true, colors: true });
+  for (const d of extras.woodDecks) addWoodDeck(mb, boards, d, collision);
 
   const propGeometry = mb.build();
   if (propGeometry) {
@@ -87,6 +89,18 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   const lampMaterial = new Material3D({ baseColor: 0xf4f1e6, roughness: 0.4, metallic: 0, emissive: { color: 0xffe2b0, strength: 0 } });
   const lampGeometry = lamps.build();
   if (lampGeometry) node.addChild(new Mesh3D({ label: 'lamps', geometry: lampGeometry, material: lampMaterial, castShadow: false }));
+
+  const boardGeometry = boards.build();
+  if (boardGeometry) {
+    node.addChild(
+      new Mesh3D({
+        label: 'wood-deck',
+        geometry: boardGeometry,
+        material: new Material3D({ baseColor: 0xffffff, roughness: 0.86, metallic: 0, vertexColors: true, extraBits: [deckBit] }),
+        castShadow: false,
+      }),
+    );
+  }
 
   // トンネルの照明は昼も夜もついている
   const glowGeometry = glow.build();
@@ -439,6 +453,196 @@ function addStairs(mb: MeshBuilder, st: StairSpec, collision: CollisionWorld): v
         y1 - 1.4,
       );
     }
+  }
+}
+
+// ---------------------------------------------------------------- ウッドデッキ
+
+/**
+ * 2 段上がりの板張りの台。板を 1 枚ずつ並べ、その上に箱形のベンチ・白いプランター・
+ * ルーバー屋根のパーゴラを置く。まわりの広場には、木を囲むベンチと車止めを置く。
+ */
+function addWoodDeck(mb: MeshBuilder, boards: MeshBuilder, d: WoodDeckSpec, collision: CollisionWorld): void {
+  const [ux, uz] = d.dir; // 板の長手方向
+  const vx = -uz; // 板の幅方向
+  const vz = ux;
+  const BOARD = 0.145;
+  const JOINT = 3.6;
+  const SEAM = 0.013;
+  const rand = mulberry32(0x77d0dec);
+  const base = linearRgb(0x857a6d);
+  const y = d.ground + d.height;
+  const stepY = d.ground + d.height / 2;
+  /** 板の幅方向 v0 〜 v1 の帯。s0, s1 は両端の「合わせ目への近さ」(シェーダが暗くする) */
+  const strip = (u0: number, u1: number, v0: number, v1: number, s0: number, s1: number): void => {
+    const a = boards.vertex(u0 * ux + v0 * vx, y, u0 * uz + v0 * vz, 0, 1, 0, s0, v0);
+    const e = boards.vertex(u1 * ux + v0 * vx, y, u1 * uz + v0 * vz, 0, 1, 0, s0, v0);
+    const b = boards.vertex(u0 * ux + v1 * vx, y, u0 * uz + v1 * vz, 0, 1, 0, s1, v1);
+    const c = boards.vertex(u1 * ux + v1 * vx, y, u1 * uz + v1 * vz, 0, 1, 0, s1, v1);
+    boards.quad(a, b, c, e);
+  };
+
+  const r = d.ring;
+  const n = r.length / 2;
+  let vMin = Infinity;
+  let vMax = -Infinity;
+  for (let i = 0; i < n; i++) {
+    const v = r[i * 2] * vx + r[i * 2 + 1] * vz;
+    vMin = Math.min(vMin, v);
+    vMax = Math.max(vMax, v);
+  }
+  for (let k = 0; vMin + k * BOARD < vMax; k++) {
+    const vc = vMin + (k + 0.5) * BOARD;
+    // この板の中心線が外周を横切る 2 点の間に板を張る
+    const cuts: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const v0 = r[i * 2] * vx + r[i * 2 + 1] * vz;
+      const v1 = r[j * 2] * vx + r[j * 2 + 1] * vz;
+      if (v0 > vc === v1 > vc) continue;
+      const u0 = r[i * 2] * ux + r[i * 2 + 1] * uz;
+      const u1 = r[j * 2] * ux + r[j * 2 + 1] * uz;
+      cuts.push(u0 + ((u1 - u0) * (vc - v0)) / (v1 - v0));
+    }
+    if (cuts.length < 2) continue;
+    cuts.sort((a, b) => a - b);
+    const end = cuts[cuts.length - 1];
+    const offset = rand() * JOINT;
+    let a = cuts[0];
+    while (a < end - 0.02) {
+      // 板の継ぎ目は列ごとにずらす。板ごとに色あせ具合を変える
+      const next = Math.min(end, (Math.floor((a - offset) / JOINT + 1e-6) + 1) * JOINT + offset);
+      const tone = 0.88 + rand() * 0.22;
+      const warm = rand() < 0.22 ? 1.06 : 1;
+      boards.color(base[0] * tone * warm, base[1] * tone, (base[2] * tone) / warm, 1);
+      const lo = vc - BOARD / 2;
+      const hi = vc + BOARD / 2;
+      const u0 = a + 0.004;
+      const u1 = next - 0.004;
+      strip(u0, u1, lo, lo + SEAM, 1, 0);
+      strip(u0, u1, lo + SEAM, hi - SEAM, 0, 0);
+      strip(u0, u1, hi - SEAM, hi, 0, 1);
+      a = next;
+    }
+  }
+
+  // 踏み段の上面 (デッキを囲む帯) と、段の立ち上がり
+  const s = d.stepRing;
+  const riser = linearRgb(0x5f5348);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    boards.color(base[0] * 0.9, base[1] * 0.9, base[2] * 0.9, 1);
+    const q = [
+      [s[i * 2], stepY, s[i * 2 + 1]],
+      [s[j * 2], stepY, s[j * 2 + 1]],
+      [r[j * 2], stepY, r[j * 2 + 1]],
+      [r[i * 2], stepY, r[i * 2 + 1]],
+    ];
+    const ids = q.map((p) => boards.vertex(p[0], p[1], p[2], 0, 1, 0, 0, 0));
+    boards.quad(ids[0], ids[1], ids[2], ids[3]);
+    boards.quad(ids[0], ids[3], ids[2], ids[1]);
+    mb.color(riser[0], riser[1], riser[2], 1);
+    doubleQuad(
+      mb,
+      [r[i * 2], stepY, r[i * 2 + 1]],
+      [r[j * 2], stepY, r[j * 2 + 1]],
+      [r[j * 2], y, r[j * 2 + 1]],
+      [r[i * 2], y, r[i * 2 + 1]],
+    );
+    doubleQuad(
+      mb,
+      [s[i * 2], d.ground - 0.1, s[i * 2 + 1]],
+      [s[j * 2], d.ground - 0.1, s[j * 2 + 1]],
+      [s[j * 2], stepY, s[j * 2 + 1]],
+      [s[i * 2], stepY, s[i * 2 + 1]],
+    );
+  }
+
+  /** 向き (ax, az) を長手とする箱。du は長手方向、dv は幅方向のずれ */
+  const boxAt = (
+    x: number,
+    z: number,
+    ax: number,
+    az: number,
+    du: number,
+    dv: number,
+    y0: number,
+    sx: number,
+    sy: number,
+    sz: number,
+  ): void => {
+    mb.box(x + ax * du - az * dv, y0, z + az * du + ax * dv, sx, sy, sz, Math.atan2(-az, ax));
+  };
+
+  // ベンチ: 角材を組んだ箱形。座面は細い板を並べる
+  const bench = (x: number, z: number, ax: number, az: number, y0: number, len: number): void => {
+    setHex(mb, 0x6a5643);
+    boxAt(x, z, ax, az, 0, 0, y0, len - 0.14, 0.37, 0.8);
+    for (let i = 0; i < 6; i++) {
+      setHex(mb, i % 2 ? 0x8b7156 : 0x7c644b);
+      boxAt(x, z, ax, az, 0, (i - 2.5) * 0.15, y0 + 0.37, len, 0.055, 0.125);
+    }
+    const circles = Math.max(2, Math.round(len / 0.9));
+    for (let i = 0; i < circles; i++) {
+      const du = ((i + 0.5) / circles - 0.5) * len;
+      collision.addCircle(x + ax * du, z + az * du, 0.48, y0 + 0.45);
+    }
+  };
+  for (const b of d.benches) bench(b.x, b.z, b.dir[0], b.dir[1], y, 2.1);
+
+  // 広場の木を囲む四角いベンチ
+  const tb = d.treeBench;
+  const half = tb.size / 2 - 0.4;
+  bench(tb.x, tb.z - half, 1, 0, d.ground, tb.size);
+  bench(tb.x, tb.z + half, 1, 0, d.ground, tb.size);
+  bench(tb.x - half, tb.z, 0, 1, d.ground, tb.size - 1.6);
+  bench(tb.x + half, tb.z, 0, 1, d.ground, tb.size - 1.6);
+
+  // プランター: 白い角形の鉢に、丸く刈り込んだ低木 (円錐台を 3 段重ねる)
+  const rot = Math.atan2(-d.pergola.dir[1], d.pergola.dir[0]);
+  for (const p of d.planters) {
+    setHex(mb, 0xe6e5e0);
+    mb.box(p.x, y, p.z, 1.1, 0.72, 1.1, rot);
+    setHex(mb, 0x3a2f26);
+    mb.box(p.x, y + 0.72, p.z, 0.96, 0.02, 0.96, rot);
+    setHex(mb, 0x40692f);
+    mb.cylinder(p.x, y + 0.7, p.z, 0.4, 0.56, 0.3, 9);
+    setHex(mb, 0x4a7636);
+    mb.cylinder(p.x, y + 1.0, p.z, 0.56, 0.5, 0.28, 9);
+    setHex(mb, 0x578540);
+    mb.cylinder(p.x, y + 1.28, p.z, 0.5, 0.2, 0.3, 9, true);
+    collision.addCircle(p.x, p.z, 0.72, y + 1.6);
+  }
+
+  // パーゴラ: 細い鉄骨の柱に、片流れの金属ルーバーの屋根
+  const g = d.pergola;
+  const [gx, gz] = g.dir;
+  const low = 2.6;
+  const high = 3.2;
+  const roofAt = (dv: number): number => low + (high - low) * (dv / g.d + 0.5);
+  for (const du of [-g.w / 2, 0, g.w / 2]) {
+    for (const dv of [-g.d / 2, g.d / 2]) {
+      setHex(mb, 0x8f959b);
+      boxAt(g.x, g.z, gx, gz, du, dv, y, 0.09, roofAt(dv), 0.09);
+      collision.addCircle(g.x + gx * du - gz * dv, g.z + gz * du + gx * dv, 0.12);
+    }
+  }
+  for (const dv of [-g.d / 2, g.d / 2]) {
+    setHex(mb, 0x8f959b);
+    boxAt(g.x, g.z, gx, gz, 0, dv, y + roofAt(dv) - 0.14, g.w + 0.3, 0.14, 0.08);
+  }
+  const slats = Math.round((g.d + 0.8) / 0.21);
+  for (let i = 0; i < slats; i++) {
+    const dv = -g.d / 2 - 0.4 + ((i + 0.5) / slats) * (g.d + 0.8);
+    setHex(mb, i % 2 ? 0xc4c9ce : 0xb6bcc2);
+    mb.box(g.x - gz * dv, y + roofAt(dv), g.z + gx * dv, g.w + 0.9, 0.03, 0.17, Math.atan2(-gz, gx), true, true);
+  }
+
+  // 車止め
+  for (const p of d.bollards) {
+    setHex(mb, 0x3d4044);
+    mb.cylinder(p.x, d.ground, p.z, 0.09, 0.09, 0.72, 8, true);
+    collision.addCircle(p.x, p.z, 0.12, d.ground + 0.75);
   }
 }
 

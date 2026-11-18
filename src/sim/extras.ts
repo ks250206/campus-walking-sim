@@ -1,4 +1,5 @@
 import type { Heightfield } from './heightfield';
+import { pointInPolygon } from './heightfield';
 import type { CampusJson, RoadData } from './types';
 
 /**
@@ -8,6 +9,7 @@ import type { CampusJson, RoadData } from './types';
  *   - H1 棟と H2 棟をつなぐ 3 階のブリッジ。下は入口から続くメインストリートが通り抜ける
  *   - J2・J3 棟わきの坂 → 加藤山をくぐる歩行者トンネル → 階段 → G2 棟 1 階の通り抜け
  *   - G4 棟をくぐる構内道路 (OSM では建物の下のトンネルとして登録されている)
+ *   - すずかけホール (H1・H2 棟) 前のウッドデッキの広場
  *
  * 位置は、建物の外形・道路の端点・標高から読み取って決めている。
  */
@@ -61,7 +63,30 @@ export interface WalkStrip {
   halfWidth: number;
 }
 
+/** 2 段上がりの板張りの台 (ウッドデッキ) と、まわりの広場の小物 */
+export interface WoodDeckSpec {
+  /** デッキの外周 (凸多角形) [x, z, ...] */
+  ring: number[];
+  /** デッキを囲む 1 段目の踏み段の外周 */
+  stepRing: number[];
+  /** まわりの舗装面の高さ */
+  ground: number;
+  /** 舗装面からデッキ上面までの高さ */
+  height: number;
+  /** 板を張る向き (単位ベクトル) */
+  dir: [number, number];
+  benches: { x: number; z: number; dir: [number, number] }[];
+  planters: { x: number; z: number }[];
+  /** ルーバー屋根のパーゴラ。w は長手 (dir の向き)、d は奥行き */
+  pergola: { x: number; z: number; w: number; d: number; dir: [number, number] };
+  /** 広場の木を囲む四角いベンチ */
+  treeBench: { x: number; z: number; size: number };
+  /** 車止め */
+  bollards: { x: number; z: number }[];
+}
+
 export interface CampusExtras {
+  woodDecks: WoodDeckSpec[];
   passages: PassageSpec[];
   tunnels: TunnelSpec[];
   stairs: StairSpec[];
@@ -96,6 +121,92 @@ const TUNNEL_HALF_WIDTH = 1.3;
 const TUNNEL_HEIGHT = 2.6;
 /** トンネルを出た所 (G4-A 棟へ回る道と、G2 棟へ下りる階段の分かれ目) */
 const JUNCTION = { x: 73.57, z: 153.3, y: 20.4 };
+
+// ---- すずかけホール前の広場とウッドデッキ。
+// H1–H2 のブリッジを抜けた先はインターロッキング舗装の広場で、その南側 (加藤山の手前) に
+// 2 段上がりの板張りの台がある。範囲は、大学の公開写真 (J2・J3 棟からの俯瞰、バリアフリーマップの
+// 経路写真) と航空写真 (地理院タイル) の色から読み取った。
+const PLAZA_OUTLINE = [12, 44, 20, 40.2, 30.5, 39.6, 41, 43.5, 42.5, 52, 42.5, 63, 39, 72, 37, 79, 24, 79, 19.5, 71.5, 2, 71.5, 0, 66];
+const DECK_RING = [26, 57.5, 40.5, 56, 41.5, 63.5, 36.5, 75.5, 29.5, 77, 26, 71];
+const DECK_HEIGHT = 0.3;
+const DECK_STEP = 0.42;
+/** 板の向き */
+const DECK_DIR: [number, number] = [0.35, 0.937];
+/** パーゴラを沿わせる、デッキの山側の辺の向き */
+const DECK_EAST: [number, number] = [0.132, 0.991];
+/** 広場に立つ木 (航空写真で樹冠が見える位置。H1 棟へ回る歩道は避ける)。3 本目を四角いベンチで囲む */
+const PLAZA_TREES = [27, 45.5, 9.5, 0, 31.5, 43.5, 8.5, 0, 30, 51.5, 10, 0, 34.5, 48.5, 9, 0];
+
+/** 凸多角形を外側へ d だけ広げる */
+function offsetConvex(ring: number[], d: number): number[] {
+  const n = ring.length / 2;
+  let area = 0;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += ring[i * 2] * ring[j * 2 + 1] - ring[j * 2] * ring[i * 2 + 1];
+  }
+  const sign = area > 0 ? 1 : -1;
+  // 各辺を外側へずらした直線 (点と向き)
+  const lines: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const dx = ring[j * 2] - ring[i * 2];
+    const dz = ring[j * 2 + 1] - ring[i * 2 + 1];
+    const len = Math.hypot(dx, dz) || 1;
+    lines.push([ring[i * 2] + ((dz * sign) / len) * d, ring[i * 2 + 1] - ((dx * sign) / len) * d, dx / len, dz / len]);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = lines[(i + n - 1) % n];
+    const b = lines[i];
+    const det = a[2] * b[3] - a[3] * b[2];
+    const t = Math.abs(det) < 1e-6 ? 0 : ((b[0] - a[0]) * b[3] - (b[1] - a[1]) * b[2]) / det;
+    out.push(a[0] + a[2] * t, a[1] + a[3] * t);
+  }
+  return out;
+}
+
+function buildWoodDeck(json: CampusJson, hf: Heightfield): WoodDeckSpec {
+  // 広場はほぼ平らなので、平均の高さにならして舗装する
+  let sum = 0;
+  let count = 0;
+  for (let x = 0; x <= 44; x += 2) {
+    for (let z = 38; z <= 80; z += 2) {
+      if (!pointInPolygon(x, z, PLAZA_OUTLINE)) continue;
+      sum += hf.heightAt(x, z);
+      count++;
+    }
+  }
+  const ground = sum / Math.max(1, count);
+  hf.flatten(PLAZA_OUTLINE, ground, 3);
+  json.areas.push({ k: 'plaza', r: PLAZA_OUTLINE });
+  json.trees.push(...PLAZA_TREES);
+
+  // パーゴラはデッキの山側の辺に沿って置き、その下にベンチ、柱の間にプランターを並べる
+  const [ex, ez] = DECK_EAST;
+  const pergola = { x: 39.1, z: 60, w: 6.6, d: 2.8, dir: DECK_EAST };
+  const along = (du: number, dv: number): { x: number; z: number } => ({
+    x: pergola.x + ex * du + ez * dv,
+    z: pergola.z + ez * du - ex * dv,
+  });
+  return {
+    ring: DECK_RING,
+    stepRing: offsetConvex(DECK_RING, DECK_STEP),
+    ground,
+    height: DECK_HEIGHT,
+    dir: DECK_DIR,
+    pergola,
+    benches: [
+      { ...along(-1.7, -0.3), dir: DECK_EAST },
+      { ...along(1.7, -0.3), dir: DECK_EAST },
+      { x: 31, z: 63.5, dir: DECK_DIR },
+      { x: 33, z: 71, dir: [DECK_DIR[1], -DECK_DIR[0]] },
+    ],
+    planters: [along(-2.7, 0.95), along(0, 0.95), along(2.7, 0.95), { x: 28.3, z: 72.8 }],
+    treeBench: { x: PLAZA_TREES[8], z: PLAZA_TREES[9], size: 2.5 },
+    bollards: [59, 61.4, 63.8, 66.2].map((z) => ({ x: 24.3, z })),
+  };
+}
 
 export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtras {
   const along = (d: number): [number, number] => [JUNCTION.x + G2_AXIS.x * d, JUNCTION.z + G2_AXIS.z * d];
@@ -196,6 +307,8 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
   // 通り抜けの床は、壁から壁まで舗装する
   json.areas.push({ k: 'plaza', r: g2Zone }, { k: 'plaza', r: g4Zone });
 
+  const woodDeck = buildWoodDeck(json, hf);
+
   const ceilingTop = Math.max(TUNNEL_W.y, TUNNEL_E.y) + TUNNEL_HEIGHT + 0.35;
   hf.shapeCorridor({
     ax: TUNNEL_W.x,
@@ -237,6 +350,7 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
   ];
 
   return {
+    woodDecks: [woodDeck],
     passages: [
       { building: /^H1/, zone: H1_BRIDGE, clear: 8.6 },
       { building: /^G2/, zone: g2Zone, clear: 4.0 },
