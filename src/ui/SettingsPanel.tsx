@@ -131,7 +131,7 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
 
       <section className="space-y-4">
         <h3 className="text-xs font-semibold tracking-widest text-white/50">操作</h3>
-        <Row label="マウス感度" value={s.mouseSensitivity.toFixed(2)}>
+        <Row label="視点操作の感度" value={s.mouseSensitivity.toFixed(2)}>
           <input
             type="range"
             className="w-full"

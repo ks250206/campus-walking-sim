@@ -21,86 +21,90 @@ function drawPlayer(ctx: CanvasRenderingContext2D, x: number, y: number, heading
 }
 
 /** 右上のミニマップ (北が上、自分を中心に半径 range m) */
-export function Minimap({ map, hud, range = 95 }: { map: MapImage; hud: HudState; range?: number }) {
+export function Minimap({ map, hud, range = 95, size }: { map: MapImage; hud: HudState; range?: number; size: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const SIZE = 184;
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    if (canvas.width !== SIZE * dpr) {
-      canvas.width = SIZE * dpr;
-      canvas.height = SIZE * dpr;
+    if (canvas.width !== size * dpr) {
+      canvas.width = size * dpr;
+      canvas.height = size * dpr;
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, SIZE, SIZE);
+    ctx.clearRect(0, 0, size, size);
     ctx.save();
     ctx.beginPath();
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 1, 0, Math.PI * 2);
+    ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
     ctx.clip();
     ctx.fillStyle = '#c3d3ae';
-    ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillRect(0, 0, size, size);
     const sx = (hud.x - range - map.x0) * map.scale;
     const sy = (hud.z - range - map.z0) * map.scale;
     const sw = range * 2 * map.scale;
-    ctx.drawImage(map.canvas, sx, sy, sw, sw, 0, 0, SIZE, SIZE);
+    ctx.drawImage(map.canvas, sx, sy, sw, sw, 0, 0, size, size);
     ctx.restore();
-    drawPlayer(ctx, SIZE / 2, SIZE / 2, hud.heading, 8);
+    drawPlayer(ctx, size / 2, size / 2, hud.heading, 8);
     ctx.strokeStyle = 'rgba(255,255,255,0.85)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(SIZE / 2, SIZE / 2, SIZE / 2 - 1, 0, Math.PI * 2);
+    ctx.arc(size / 2, size / 2, size / 2 - 1, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = '#fff';
     ctx.font = 'bold 11px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('N', SIZE / 2, 13);
-  }, [map, hud.x, hud.z, hud.heading, range]);
-  return <canvas ref={ref} style={{ width: SIZE, height: SIZE }} className="rounded-full shadow-lg shadow-black/40" />;
+    ctx.fillText('N', size / 2, 13);
+  }, [map, hud.x, hud.z, hud.heading, range, size]);
+  return <canvas ref={ref} style={{ width: size, height: size }} className="rounded-full shadow-lg shadow-black/40" />;
 }
 
-/** 全体図 (M キー) */
-export function FullMap({ map, hud, landmarks }: { map: MapImage; hud: HudState; landmarks: Landmark[] }) {
+/** 全体図 */
+export function FullMap({ map, hud, landmarks, touch }: { map: MapImage; hud: HudState; landmarks: Landmark[]; touch: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
-    const maxH = window.innerHeight * 0.82;
-    const maxW = window.innerWidth * 0.9;
-    const k = Math.min(maxW / map.canvas.width, maxH / map.canvas.height);
-    const w = Math.round(map.canvas.width * k);
-    const h = Math.round(map.canvas.height * k);
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.drawImage(map.canvas, 0, 0, w, h);
-    const px = (x: number): number => (x - map.x0) * map.scale * k;
-    const pz = (z: number): number => (z - map.z0) * map.scale * k;
-    ctx.font = '600 11px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.lineJoin = 'round';
-    const seen = new Set<string>();
-    for (const l of landmarks) {
-      const label = l.name.replace(/(高層棟|本棟|棟)$/, '');
-      if (seen.has(label)) continue;
-      seen.add(label);
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.lineWidth = 3;
-      ctx.strokeText(label, px(l.x), pz(l.z) + 4);
-      ctx.fillStyle = '#3b2a22';
-      ctx.fillText(label, px(l.x), pz(l.z) + 4);
-    }
-    drawPlayer(ctx, px(hud.x), pz(hud.z), hud.heading, 9);
+    const draw = (): void => {
+      const maxH = window.innerHeight * 0.82;
+      const maxW = window.innerWidth * 0.9;
+      const k = Math.min(maxW / map.canvas.width, maxH / map.canvas.height);
+      const w = Math.round(map.canvas.width * k);
+      const h = Math.round(map.canvas.height * k);
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.drawImage(map.canvas, 0, 0, w, h);
+      const px = (x: number): number => (x - map.x0) * map.scale * k;
+      const pz = (z: number): number => (z - map.z0) * map.scale * k;
+      ctx.font = '600 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineJoin = 'round';
+      const seen = new Set<string>();
+      for (const l of landmarks) {
+        const label = l.name.replace(/(高層棟|本棟|棟)$/, '');
+        if (seen.has(label)) continue;
+        seen.add(label);
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(label, px(l.x), pz(l.z) + 4);
+        ctx.fillStyle = '#3b2a22';
+        ctx.fillText(label, px(l.x), pz(l.z) + 4);
+      }
+      drawPlayer(ctx, px(hud.x), pz(hud.z), hud.heading, 9);
+    };
+    draw();
+    window.addEventListener('resize', draw);
+    return () => window.removeEventListener('resize', draw);
   }, [map, hud.x, hud.z, hud.heading, landmarks]);
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55">
       <canvas ref={ref} className="rounded-lg shadow-2xl ring-1 ring-white/30" />
-      <p className="text-xs text-white/80">M キーで閉じる ／ 赤い矢印が現在地</p>
+      <p className="text-xs text-white/80">{!touch && 'M キーで閉じる ／ '}赤い矢印が現在地</p>
     </div>
   );
 }

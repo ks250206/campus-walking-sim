@@ -98,7 +98,9 @@ export class Simulator {
   private readonly keys = new Set<string>();
   private readonly input: PlayerInput = { forward: 0, strafe: 0, run: false, jump: false, up: 0 };
   private settings: Settings;
-  private active = false;
+  private mode: 'mouse' | 'touch' | null = null;
+  private readonly touchInput: PlayerInput = { forward: 0, strafe: 0, run: false, jump: false, up: 0 };
+  private touchJumpQueued = false;
   private hudTimer = 0;
   private fpsSmooth = 60;
   private place = '';
@@ -320,17 +322,18 @@ export class Simulator {
     };
 
     on(document, 'pointerlockchange', () => {
+      if (this.mode === 'touch') return;
       const locked = document.pointerLockElement === canvas;
-      this.active = locked;
+      this.mode = locked ? 'mouse' : null;
       if (!locked) this.keys.clear();
       this.onLockChange?.(locked);
     });
     on(document, 'mousemove', (e) => {
-      if (!this.active) return;
+      if (this.mode !== 'mouse') return;
       this.player.look(e.movementX, e.movementY, this.settings.mouseSensitivity, this.settings.invertY);
     });
     on(document, 'keydown', (e) => {
-      if (!this.active) return;
+      if (this.mode !== 'mouse') return;
       if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
       if (e.repeat) return;
       // ブラウザが Esc を自分で処理しない環境でも、メニューに戻れるようにする
@@ -339,7 +342,7 @@ export class Simulator {
         return;
       }
       this.keys.add(e.code);
-      if (e.code === 'KeyF') this.player.flying = !this.player.flying;
+      if (e.code === 'KeyF') this.toggleFlight();
       if (e.code === 'KeyR') this.respawn();
     });
     on(document, 'keyup', (e) => {
@@ -364,7 +367,50 @@ export class Simulator {
   }
 
   releaseLock(): void {
-    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.pointerLockElement === this.app.canvas) document.exitPointerLock();
+  }
+
+  startTouch(): void {
+    this.mode = 'touch';
+  }
+
+  stopTouch(): void {
+    if (this.mode !== 'touch') return;
+    this.mode = null;
+    this.clearTouchInput();
+  }
+
+  setTouchMovement(strafe: number, forward: number): void {
+    this.touchInput.strafe = strafe;
+    this.touchInput.forward = forward;
+  }
+
+  setTouchAction(action: 'run' | 'jump' | 'down', pressed: boolean): void {
+    if (action === 'down') {
+      this.touchInput.up = pressed ? -1 : 0;
+    } else {
+      this.touchInput[action] = pressed;
+      // フレーム間に押して離したタップもジャンプとして受け取る。
+      if (action === 'jump' && pressed && !this.player.flying) this.touchJumpQueued = true;
+    }
+  }
+
+  clearTouchInput(): void {
+    this.setTouchMovement(0, 0);
+    this.touchInput.run = this.touchInput.jump = false;
+    this.touchJumpQueued = false;
+    this.touchInput.up = 0;
+  }
+
+  lookTouch(dx: number, dy: number): void {
+    if (this.mode !== 'touch') return;
+    this.player.look(dx, dy, this.settings.mouseSensitivity * 3, this.settings.invertY);
+  }
+
+  toggleFlight(): void {
+    this.player.flying = !this.player.flying;
+    this.touchJumpQueued = false;
+    this.touchInput.up = 0;
   }
 
   /** タイトル画面用の俯瞰カメラに切り替える */
@@ -375,6 +421,7 @@ export class Simulator {
 
   respawn(): void {
     this.player.flying = false;
+    this.touchInput.up = 0;
     this.player.teleport(SPAWN.x, SPAWN.z, SPAWN.yaw);
   }
 
@@ -396,6 +443,16 @@ export class Simulator {
 
     const p = this.player;
     const camera = this.view.camera;
+    if (this.mode === 'touch') {
+      const touch = this.touchInput;
+      input.forward = touch.forward;
+      input.strafe = touch.strafe;
+      input.run = touch.run;
+      input.jump = touch.jump || this.touchJumpQueued;
+      this.touchJumpQueued = false;
+      input.up = Number(touch.jump) + touch.up;
+    }
+
     if (this.showcase) {
       // タイトル画面: キャンパスの上空をゆっくり回る
       this.showcaseAngle += dt * 0.035;
@@ -403,7 +460,7 @@ export class Simulator {
       camera.position.set(-10 + Math.sin(a) * 330, 150, -10 + Math.cos(a) * 330);
       camera.lookAt({ x: -10, y: 22, z: -10 });
     } else {
-      if (this.active) p.update(dt, input, this.settings.headBob);
+      if (this.mode) p.update(dt, input, this.settings.headBob);
       p.applyTo(camera);
     }
     const cam = camera.position;
