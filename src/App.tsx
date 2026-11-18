@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { Simulator } from './sim/engine';
 import type { HudState } from './sim/engine';
 import { loadCampusData } from './sim/loadData';
@@ -6,6 +7,7 @@ import { settingsStore, useSettings } from './sim/settings';
 import type { SourceCredit } from './sim/types';
 import { Hud } from './ui/Hud';
 import { SettingsPanel } from './ui/SettingsPanel';
+import { TouchControls } from './ui/TouchControls';
 
 type Phase = 'loading' | 'title' | 'playing' | 'paused' | 'error';
 type Tab = 'main' | 'settings' | 'controls' | 'credits';
@@ -21,6 +23,16 @@ const CONTROLS: [string, string][] = [
   ['Esc', 'メニューを開く'],
 ];
 
+const TOUCH_CONTROLS: [string, string][] = [
+  ['左下のスティック', '移動'],
+  ['画面をドラッグ', '視点を動かす'],
+  ['走る', '押している間、走る'],
+  ['ジャンプ', 'タップしてジャンプする'],
+  ['飛行', '飛行モード (「上昇」「下降」を長押し)'],
+  ['地図', '全体図を開く / 閉じる'],
+  ['メニュー', '一時停止 / 入口に戻る'],
+];
+
 const INITIAL_HUD: HudState = { fps: 0, x: 0, z: 0, heading: 0, elevation: 0, place: '', flying: false, running: false };
 
 export default function App() {
@@ -32,6 +44,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [tab, setTab] = useState<Tab>('main');
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
+  const [touch, setTouch] = useState(() => window.matchMedia('(pointer: coarse)').matches);
   const [showMap, setShowMap] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [credits, setCredits] = useState<SourceCredit[]>([]);
@@ -88,22 +101,49 @@ export default function App() {
   }, [phase]);
 
   useEffect(() => {
-    if (phase !== 'playing') return;
+    if (phase !== 'playing' || touch) return;
     const onKey = (e: KeyboardEvent): void => {
       if (e.code === 'KeyM' && !e.repeat) setShowMap((v) => !v);
       if (e.code === 'KeyH' && !e.repeat) setShowHelp((v) => !v);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase]);
+  }, [phase, touch]);
 
-  const start = useCallback(() => {
+  const start = (e: MouseEvent<HTMLButtonElement>): void => {
     if (!sim) return;
+    const event = e.nativeEvent;
+    const useTouch = touch || ('pointerType' in event && event.pointerType === 'touch') || !sim.app.canvas.requestPointerLock;
     sim.setShowcase(false);
     setTab('main');
     setShowHelp(true);
-    sim.requestLock();
+    if (useTouch) {
+      setTouch(true);
+      sim.startTouch();
+      setPhase('playing');
+    } else {
+      sim.requestLock();
+    }
+  };
+
+  const pauseTouch = useCallback(() => {
+    sim?.stopTouch();
+    setShowMap(false);
+    setPhase('paused');
   }, [sim]);
+
+  useEffect(() => {
+    if (phase !== 'playing' || !touch) return;
+    const onVisibilityChange = (): void => {
+      if (document.hidden) pauseTouch();
+    };
+    window.addEventListener('blur', pauseTouch);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', pauseTouch);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [phase, touch, pauseTouch]);
 
   const backToTitle = useCallback(() => {
     if (!sim) return;
@@ -118,11 +158,23 @@ export default function App() {
   const menuOpen = phase === 'title' || phase === 'paused';
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-slate-950">
+    <div className="relative h-dvh w-full overflow-hidden bg-slate-950">
       <div ref={hostRef} className="absolute inset-0" />
 
       {phase === 'playing' && sim && (
-        <Hud hud={hud} settings={settings} map={sim.map} landmarks={sim.landmarks} showMap={showMap} showHelp={showHelp} />
+        <>
+          <Hud hud={hud} settings={settings} map={sim.map} landmarks={sim.landmarks} showMap={showMap} showHelp={showHelp} touch={touch} />
+          {touch && (
+            <TouchControls
+              sim={sim}
+              flying={hud.flying}
+              showHelp={showHelp}
+              showMap={showMap}
+              onToggleMap={() => setShowMap((v) => !v)}
+              onPause={pauseTouch}
+            />
+          )}
+        </>
       )}
 
       {phase === 'loading' && (
@@ -151,7 +203,7 @@ export default function App() {
               error: {error}
             </p>
             <p className="mt-3 text-xs text-white/60">
-              WebGL 2 に対応した PC のブラウザ (Chrome / Edge / Firefox / Safari の最新版) でお試しください。
+              WebGL 2 に対応したブラウザ (Chrome / Edge / Firefox / Safari の最新版) でお試しください。
             </p>
           </div>
         </div>
@@ -174,7 +226,7 @@ export default function App() {
               </p>
             </header>
 
-            <nav className="flex gap-1 border-b border-white/10 px-4 pt-2 text-sm">
+            <nav className="flex flex-wrap gap-1 border-b border-white/10 px-2 pt-2 text-sm sm:px-4">
               {(
                 [
                   ['main', phase === 'paused' ? '一時停止中' : 'スタート'],
@@ -187,7 +239,7 @@ export default function App() {
                   key={id}
                   type="button"
                   onClick={() => setTab(id)}
-                  className={`rounded-t-md px-3 py-2 transition ${tab === id ? 'bg-white/10 font-semibold text-white' : 'text-white/60 hover:text-white'}`}
+                  className={`rounded-t-md px-2 py-2 transition sm:px-3 ${tab === id ? 'bg-white/10 font-semibold text-white' : 'text-white/60 hover:text-white'}`}
                 >
                   {label}
                 </button>
@@ -205,7 +257,9 @@ export default function App() {
                     {phase === 'paused' ? '歩行を再開する' : 'キャンパスを歩く'}
                   </button>
                   <p className="text-center text-xs text-white/55">
-                    クリックするとマウスで視点を動かせるようになります。Esc でいつでもこのメニューに戻れます。
+                    {touch
+                      ? '左下のスティックで移動し、画面をドラッグして見回します。右上のボタンでメニューに戻れます。'
+                      : 'クリックするとマウスで視点を動かせるようになります。Esc でいつでもこのメニューに戻れます。'}
                   </p>
                   {phase === 'paused' && (
                     <button
@@ -228,7 +282,7 @@ export default function App() {
               {tab === 'controls' && (
                 <table className="w-full text-sm">
                   <tbody>
-                    {CONTROLS.map(([key, action]) => (
+                    {(touch ? TOUCH_CONTROLS : CONTROLS).map(([key, action]) => (
                       <tr key={key} className="border-b border-white/5 last:border-0">
                         <td className="py-2 pr-4 font-mono text-sky-200">{key}</td>
                         <td className="py-2 text-white/85">{action}</td>
