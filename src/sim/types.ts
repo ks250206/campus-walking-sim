@@ -31,6 +31,8 @@ export interface BuildingData {
 }
 
 export interface RoadData {
+  /** 歩道灯を個別に配置する通路 */
+  noLamps?: boolean;
   /** OSM の highway=* (線路は "rail") */
   k: string;
   /** 幅 (m) */

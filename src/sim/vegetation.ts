@@ -6,6 +6,7 @@ import type { CampusExtras } from './extras';
 import { approachPoint, gatePoint, okabeHedge } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { signedDistanceToPolygon } from './heightfield';
+import { rampPoint, woodlandPath } from './j23Approach';
 import { MeshBuilder } from './meshBuilder';
 import { mulberry32 } from './rng';
 import { noiseBit } from './shaderBits';
@@ -282,6 +283,27 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     }
     addCard(mb, x, y + h * 0.89, z, 1, 0, 0, 0, 0.05, 0.95, x, y, z, 4, false);
   };
+  // 加藤山の小径沿いの下草と低木。分岐と坑口には見通しを残す。
+  const woodlandRand = mulberry32(2302);
+  const undergrowth = (x: number, z: number): void => {
+    if (!inClearing(x, z)) hedgeClump(x, hf.surfaceAt(x, z), z, 0.5 + woodlandRand() * 0.85, woodlandRand);
+  };
+  for (let i = 1; i + 1 < woodlandPath.length; i++) {
+    const [ax, az] = woodlandPath[i];
+    const [bx, bz] = woodlandPath[i + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    const dx = (bx - ax) / len;
+    const dz = (bz - az) / len;
+    for (let d = 0; d < len; d += 0.7 + woodlandRand()) {
+      for (const side of [-1, 1]) {
+        const offset = (2.7 + 1.8 * woodlandRand()) * side;
+        undergrowth(ax + dx * d - dz * offset, az + dz * d + dx * offset);
+      }
+    }
+  }
+  for (const distance of [6, 7.4, 8, 9.1, 21, 22, 22.9, 24, 25.5, 26.3, 29, 30.2]) {
+    undergrowth(...rampPoint(distance, -3.5 - woodlandRand()));
+  }
   const gateRand = mulberry32(612);
   const entranceHedge = (along: number, right: number): void => {
     const [x, z] = gatePoint(along, right);

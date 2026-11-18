@@ -7,6 +7,7 @@ import type { CampusExtras, StairSpec, TunnelSpec, WoodDeckSpec } from './extras
 import { approachLength, approachPoint, gateForward, gatePoint } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon, signedDistanceToPolygon } from './heightfield';
+import { doorNormal, entrancePoint, forkDistance, rampOut, rampPoint } from './j23Approach';
 import { MeshBuilder, linearRgb } from './meshBuilder';
 import { hash2, mulberry32 } from './rng';
 import { deckBit, surfaceBit } from './shaderBits';
@@ -89,6 +90,7 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   addTennisCourts(mb, json, hf, collision);
   addGate(mb, signMesh, signs, hf, collision);
   addGateApproach(mb, hf, collision);
+  addJ23Entrance(mb, signMesh, signs, hf, collision);
   addBuildingSigns(mb, signMesh, signs, json, hf, campusRoads, collision);
   const lampPositions = addLamps(mb, lamps, hf, campusRoads, lampBlocked, collision);
   addCars(mb, json, hf, collision);
@@ -965,6 +967,95 @@ function nearestRoadPoint(
   return best;
 }
 
+/** J2・J3棟 2階玄関1と、坂からG地区へ折れる分岐の目印。 */
+function addJ23Entrance(mb: MeshBuilder, signMesh: MeshBuilder, signs: SignAtlas, hf: Heightfield, collision: CollisionWorld): void {
+  const floor = hf.heightAt(...rampPoint(0));
+  const rot = Math.atan2(doorNormal[0], doorNormal[1]);
+  const box = (out: number, right: number, up: number, width: number, height: number, depth: number, hex: number): void => {
+    const [x, z] = entrancePoint(out, right);
+    setHex(mb, hex);
+    mb.box(x, floor + up, z, width, height, depth, rot, true, true);
+  };
+  // 塔の間から張り出す二層分のガラスとアルミの方立。自動扉の前に庇がかかる。
+  box(-0.33, 0, -0.25, 7.8, 6.75, 4.26, 0x73949a);
+  box(-0.33, 0, 6.48, 7.92, 0.2, 4.38, 0xbcc4c4);
+  for (const right of [-3.9, -2.6, -1.3, 0, 1.3, 2.6, 3.9]) box(1.82, right, 0, 0.1, 6.5, 0.12, 0xd7dcdb);
+  for (const up of [2.85, 3.55, 5.85]) box(1.82, 0, up, 7.86, 0.1, 0.12, 0xd7dcdb);
+  for (const right of [-3.91, 3.91]) {
+    for (const out of [-2.36, -1, 0.4]) box(out, right, 0, 0.1, 6.5, 0.1, 0xd7dcdb);
+    box(-0.33, right, 3.55, 0.12, 0.1, 4.26, 0xd7dcdb);
+  }
+  box(1.91, 0, 0, 4.35, 2.7, 0.13, 0x929da0);
+  for (const right of [-1.53, -0.51, 0.51, 1.53]) box(2, right, 0.12, 0.96, 2.43, 0.07, 0x334b53);
+  box(2.83, 0, 2.93, 5.3, 0.36, 2.5, 0xc2c7ca);
+  for (const right of [-2.54, 2.54]) {
+    box(3.92, right, 0, 0.13, 2.96, 0.13, 0xc8cdd0);
+    collision.addCircle(...entrancePoint(3.92, right), 0.09, floor + 2.96);
+  }
+  collision.addRing(
+    [entrancePoint(2.04, -3.92), entrancePoint(2.04, 3.92), entrancePoint(-2.4, 3.92), entrancePoint(-2.4, -3.92)].flat(),
+    floor + 6.7,
+  );
+
+  // 右縁の腰掛けは一段ずつ水平、握りは坂と同じ勾配で連続する。
+  const atRail = (d: number): number[] => {
+    const [x, z] = rampPoint(d, 2.25);
+    return [x, hf.heightAt(x, z), z];
+  };
+  const railRot = Math.atan2(-rampOut[1], rampOut[0]);
+  for (let d = 4; d < 32; d += 3.5) {
+    const a = atRail(d);
+    const b = atRail(d + 3.5);
+    const [x, z] = rampPoint(d + 1.75, 2.55);
+    const top = a[1] + 0.3;
+    setHex(mb, 0xa6a7a1);
+    mb.box(x, b[1] - 0.32, z, 3.46, top - b[1] + 0.32, 0.85, railRot);
+    setHex(mb, 0x696153);
+    mb.box(x, top, z, 3.47, 0.07, 0.89, railRot);
+    addRail(mb, a, b, 0.93, 0xa6adb0, [0.93]);
+    collision.addSegment(a[0], a[2], b[0], b[2], Math.max(a[1], b[1]) + 0.93);
+  }
+
+  // 左の案内柱を分岐の玄関側に立て、どちらからも曲がり口を塞がない。
+  const [sx, sz] = rampPoint(forkDistance - 2.8, -2.45);
+  const sy = hf.heightAt(sx, sz);
+  const signRot = Math.atan2(rampOut[0], rampOut[1]);
+  setHex(mb, 0x687579);
+  mb.cylinder(sx, sy - 0.1, sz, 0.07, 0.07, 2.15, 8, true);
+  const labels = ['↑  J2・J3棟', '←  G地区'];
+  for (const [i, label] of labels.entries()) {
+    const y = sy + 2.12 - i * 0.24;
+    setHex(mb, 0x344e69);
+    mb.box(sx, y - 0.105, sz, 1.12, 0.21, 0.08, signRot);
+    const uv = signs.add(192, 36, (ctx, w, h) => {
+      ctx.fillStyle = '#344e69';
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 25px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, w / 2, h / 2);
+    });
+    addSignQuad(signMesh, sx + rampOut[0] * 0.045, y, sz + rampOut[1] * 0.045, 1.12, 0.21, ...rampOut, uv);
+  }
+  collision.addCircle(sx, sz, 0.08, sy + 2.23);
+  for (const d of [7, 10, 19, 23]) {
+    const [x, z] = rampPoint(d, -2);
+    const y = hf.heightAt(x, z);
+    setHex(mb, 0x484c47);
+    mb.cylinder(x, y - 0.08, z, 0.09, 0.09, 0.69, 8, true);
+    collision.addCircle(x, z, 0.09, y + 0.61);
+  }
+  for (const [x, z] of [rampPoint(28, -2.2), [23.4, 147.8], [37, 136.2]]) {
+    const y = hf.heightAt(x, z);
+    setHex(mb, 0xc7c8bf);
+    mb.cylinder(x, y - 0.08, z, 0.105, 0.105, 0.94, 8, true);
+    setHex(mb, 0x747978);
+    for (const h of [0.7, 0.76, 0.82]) mb.cylinder(x, y + h, z, 0.108, 0.108, 0.024, 8);
+    collision.addCircle(x, z, 0.105, y + 0.86);
+  }
+}
+
 // ---------------------------------------------------------------- 棟名サイン
 function addBuildingSigns(
   mb: MeshBuilder,
@@ -1045,7 +1136,8 @@ function addLamps(
   const placed: number[] = [];
   const heads: number[] = [];
   for (const road of roads) {
-    if (!['service', 'footway', 'pedestrian', 'unclassified', 'tertiary'].includes(road.k) || road.sv === 'parking_aisle') continue;
+    if (road.noLamps || !['service', 'footway', 'pedestrian', 'unclassified', 'tertiary'].includes(road.k) || road.sv === 'parking_aisle')
+      continue;
     const walk = road.k === 'footway' || road.k === 'pedestrian';
     const spacing = walk ? 22 : 30;
     const p = road.p;

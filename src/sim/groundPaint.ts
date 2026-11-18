@@ -87,7 +87,7 @@ export function paintGround(json: CampusJson, rect: PaintRect, maskSize: number)
       ctx.fill('evenodd');
     }
     for (const r of roads) {
-      if (!VEHICLE.has(r.k)) continue;
+      if (!VEHICLE.has(r.k) && !(r.k === 'footway' && r.sf === 'asphalt')) continue;
       ctx.lineWidth = r.w;
       tracePolyline(ctx, r.p);
       ctx.stroke();

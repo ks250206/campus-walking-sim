@@ -9,6 +9,7 @@ import { FACADE_STYLES, createFacadeMaterial } from './facade';
 import type { FacadeStyle, FacadeStyleId } from './facade';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon, signedDistanceToPolygon } from './heightfield';
+import { doorNormal, glassMidpoint } from './j23Approach';
 import { MeshBuilder, linearRgb } from './meshBuilder';
 import { hash2, mulberry32 } from './rng';
 import { surfaceBit } from './shaderBits';
@@ -183,8 +184,11 @@ export function buildBuildings(
           const nx = -tz;
           const nz = tx;
           // 妻側 (建物の短辺方向に走る壁) は、様式によって窓なし・ブレース付きにする
-          const across = Math.abs(tx * obb.ax + tz * obb.az) < 0.5;
-          const isEnd = style.ends !== 'same' && across && len > 5 && r === part.ring && !cut;
+          // 二棟一体の外接矩形は塔単体と長短が逆になる。各塔の長手は玄関の法線方向。
+          const across =
+            styleId === 'j2j3' ? Math.abs(tx * doorNormal[0] + tz * doorNormal[1]) < 0.5 : Math.abs(tx * obb.ax + tz * obb.az) < 0.5;
+          const glazed = styleId === 'j2j3' && Math.hypot((x0 + x1) / 2 - glassMidpoint[0], (z0 + z1) / 2 - glassMidpoint[1]) < 0.1;
+          const isEnd = !glazed && style.ends !== 'same' && across && len > 5 && r === part.ring && !cut;
           if (styleId === 'r3Low' && isEnd && nx < 0 && nz < 0) {
             // 道路に近い北西妻面の鋼製引き戸。
             const x = x0 + (x1 - x0) * 0.72;
@@ -193,15 +197,18 @@ export function buildBuildings(
           }
           const plain = len < 1.1 || isEnd || cut;
           const flag = isEnd && style.ends === 'brace' && len > 12 ? 2 : plain ? 1 : 0;
-          const bays = plain ? 1 : Math.max(1, Math.round(len / style.bayW));
-          mb.setData(len / bays, seed, (wallTop - b.b) * vScale, flag);
+          // 二棟間の吹き抜けは細い方立のあるカーテンウォール。
+          const face = glazed ? wallBuilder('h1') : mb;
+          if (glazed) face.color(0.76, 0.8, 0.81, 1);
+          const bays = plain ? 1 : Math.max(1, Math.round(len / (glazed ? FACADE_STYLES.h1.bayW : style.bayW)));
+          face.setData(len / bays, seed, (wallTop - b.b) * vScale, flag);
           const v0 = (from - b.b) * vScale;
           const v1 = (wallTop - b.b) * vScale;
-          const a = mb.vertex(x0, from, z0, nx, 0, nz, 0, v0);
-          const bb = mb.vertex(x1, from, z1, nx, 0, nz, bays, v0);
-          const c = mb.vertex(x1, wallTop, z1, nx, 0, nz, bays, v1);
-          const d = mb.vertex(x0, wallTop, z0, nx, 0, nz, 0, v1);
-          mb.quad(a, bb, c, d);
+          const a = face.vertex(x0, from, z0, nx, 0, nz, 0, v0);
+          const bb = face.vertex(x1, from, z1, nx, 0, nz, bays, v0);
+          const c = face.vertex(x1, wallTop, z1, nx, 0, nz, bays, v1);
+          const d = face.vertex(x0, wallTop, z0, nx, 0, nz, 0, v1);
+          face.quad(a, bb, c, d);
         }
       }
     };
