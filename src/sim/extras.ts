@@ -280,6 +280,22 @@ function addOkabePlaza(json: CampusJson, hf: Heightfield, strips: WalkStrip[]): 
 }
 
 export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtras {
+  // R3本棟は2つの外形に分かれる。低層棟のLOD1底面は高層棟との接続部の低い地盤にあり、
+  // そのままでは道路側で外壁が埋まる。棟高は維持し、1階を搬入口前の地盤に合わせる。
+  const lowWing = json.buildings.find((b) => b.c && b.n === 'R3本棟' && pointInPolygon(-60, 6, b.r));
+  if (lowWing) {
+    const height = lowWing.t - lowWing.b;
+    lowWing.b = hf.heightAt(-86, -12);
+    lowWing.t = lowWing.b + height;
+    lowWing.n = 'R3低層棟';
+    lowWing.lv = 1;
+    // 搬入車が引き戸へ回り込む舗装と、道路に面した長辺の作業帯。
+    json.areas.push({
+      k: 'asphalt',
+      r: [-77.3, -17.4, -88.08, -8.9, -43.96, 43.51, -47.2, 46.2, -93.9, -9.3, -79.9, -20.5],
+    });
+  }
+
   const along = (d: number): [number, number] => [JUNCTION.x + G2_AXIS.x * d, JUNCTION.z + G2_AXIS.z * d];
   const [topX, topZ] = along(9); // 階段の上端
   const [bottomX, bottomZ] = along(25); // 階段の下端

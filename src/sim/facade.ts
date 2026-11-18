@@ -139,6 +139,26 @@ export const FACADE_STYLES = {
   },
   /** R1・R2 棟 */
   slabR: { ...slab },
+  /** R3低層棟。天井の高い平屋で、窓は壁の下方に1列。妻面は搬入口。 */
+  r3Low: {
+    ...base,
+    walls: [0xbbb8ad],
+    accent: 0xb1ada2,
+    floorH: 5.5,
+    groundH: 0,
+    bayW: 5.7,
+    winW: 0.82,
+    winH: 0.29,
+    sill: 0.14,
+    mullions: 4,
+    pilaster: 0.055,
+    tile: [1.8, 0.9],
+    tileStrength: 0.24,
+    tileBond: false,
+    reflect: 0.22,
+    parapet: 0.25,
+    ends: 'blank',
+  },
   /** R3 高層棟: やや暗いグレー */
   slabR3: { ...slab, walls: [0x9b9a9f], accent: 0x7e8187 },
   /** G1 棟: 濃いグレーのルーバー帯と明るい妻壁 */

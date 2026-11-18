@@ -19,6 +19,7 @@ const CAMPUS_STYLES: [RegExp, FacadeStyleId][] = [
   [/^B1・B2-A/, 'greyTile'],
   [/^B1・B2-[BC]/, 'greyTile'],
   [/^B[12]/, 'slabB'],
+  [/^R3低層棟$/, 'r3Low'],
   [/^R3-/, 'concrete'],
   [/^R3/, 'slabR3'],
   [/^R[12]高層/, 'slabR'],
@@ -60,7 +61,7 @@ const CAMPUS_INFO: [RegExp, number, string?][] = [
   [/^R3-[AB]/, 1],
   [/^R3-C/, 2],
   [/^R3-D/, 3],
-  // 高層棟 6 階 + 低層棟 1 階 (低層棟は下の officialFloors で高さから判定する)
+  [/^R3低層棟$/, 1],
   [/^R3/, 6],
   [/^S1/, 4],
   [/^S2/, 7],
