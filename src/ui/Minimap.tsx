@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
-import type { HudState, Landmark } from '../sim/engine';
+import type { HudState } from '../sim/engine';
+import type { TravelDestination } from '../sim/fastTravel';
+import type { Landmark } from '../sim/types';
 import type { MapImage } from '../sim/mapImage';
 
 function drawPlayer(ctx: CanvasRenderingContext2D, x: number, y: number, headingDeg: number, size: number): void {
@@ -60,16 +62,26 @@ export function Minimap({ map, hud, range = 95, size }: { map: MapImage; hud: Hu
 }
 
 /** 全体図 */
-export function FullMap({ map, hud, landmarks, touch }: { map: MapImage; hud: HudState; landmarks: Landmark[]; touch: boolean }) {
+export function FullMap({
+  map,
+  hud,
+  landmarks,
+  destination,
+}: {
+  map: MapImage;
+  hud: HudState;
+  landmarks: Landmark[];
+  destination?: TravelDestination;
+}) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
+    const frame = canvas?.parentElement;
+    if (!canvas || !ctx || !frame) return;
     const draw = (): void => {
-      const maxH = window.innerHeight * 0.82;
-      const maxW = window.innerWidth * 0.9;
-      const k = Math.min(maxW / map.canvas.width, maxH / map.canvas.height);
+      const k = Math.min(frame.clientWidth / map.canvas.width, frame.clientHeight / map.canvas.height);
+      if (k <= 0) return;
       const w = Math.round(map.canvas.width * k);
       const h = Math.round(map.canvas.height * k);
       const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -96,15 +108,20 @@ export function FullMap({ map, hud, landmarks, touch }: { map: MapImage; hud: Hu
         ctx.fillText(label, px(l.x), pz(l.z) + 4);
       }
       drawPlayer(ctx, px(hud.x), pz(hud.z), hud.heading, 9);
+      if (destination) {
+        ctx.beginPath();
+        ctx.arc(px(destination.x), pz(destination.z), 6, 0, 2 * Math.PI);
+        ctx.fillStyle = '#0369a1';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#fff';
+        ctx.stroke();
+      }
     };
     draw();
-    window.addEventListener('resize', draw);
-    return () => window.removeEventListener('resize', draw);
-  }, [map, hud.x, hud.z, hud.heading, landmarks]);
-  return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55">
-      <canvas ref={ref} className="rounded-lg shadow-2xl ring-1 ring-white/30" />
-      <p className="text-xs text-white/80">{!touch && 'M キーで閉じる ／ '}赤い矢印が現在地</p>
-    </div>
-  );
+    const observer = new ResizeObserver(draw);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [map, hud.x, hud.z, hud.heading, landmarks, destination]);
+  return <canvas ref={ref} aria-hidden="true" className="rounded-lg shadow-2xl ring-1 ring-white/30" />;
 }

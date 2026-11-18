@@ -95,3 +95,10 @@ export interface CampusData {
 }
 
 export type Vec2 = [number, number];
+
+export interface Landmark {
+  name: string;
+  x: number;
+  z: number;
+  ring: number[];
+}

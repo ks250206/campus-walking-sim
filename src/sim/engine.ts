@@ -4,6 +4,8 @@ import { FxaaEffect, SsaoEffect } from '@pixi/3d/extras';
 import { Application, RendererType } from 'pixi.js';
 import type { WebGLRenderer } from 'pixi.js';
 import { buildBuildings } from './buildings';
+import { findTravelDestinations } from './fastTravel';
+import type { TravelDestination } from './fastTravel';
 import { CollisionWorld } from './collision';
 import { campusNote } from './buildingStyles';
 import { Heightfield, signedDistanceToPolygon } from './heightfield';
@@ -16,7 +18,7 @@ import { resolutionScale } from './settings';
 import type { Settings, ShadowLevel } from './settings';
 import { Sky } from './sky';
 import { buildTerrain } from './terrain';
-import type { CampusData } from './types';
+import type { CampusData, Landmark } from './types';
 import { buildVegetation } from './vegetation';
 import { Decks } from './decks';
 import { applyCampusExtras } from './extras';
@@ -36,13 +38,6 @@ export interface HudState {
   placeNote: string;
   flying: boolean;
   running: boolean;
-}
-
-export interface Landmark {
-  name: string;
-  x: number;
-  z: number;
-  ring: number[];
 }
 
 const SHADOW_QUALITY: Record<Exclude<ShadowLevel, 'off'>, 'low' | 'medium' | 'high'> = {
@@ -93,6 +88,7 @@ export class Simulator {
   readonly player: Player;
   readonly sky: Sky;
   readonly landmarks: Landmark[] = [];
+  readonly travelDestinations: TravelDestination[];
   /** ミニマップ・全体図の下地 */
   readonly map: MapImage;
   onHud: ((state: HudState) => void) | null = null;
@@ -151,6 +147,8 @@ export class Simulator {
       }
       this.landmarks.push({ name: b.n, x: cx / (b.r.length / 2), z: cz / (b.r.length / 2), ring: b.r });
     }
+
+    this.travelDestinations = findTravelDestinations(data.json, this.landmarks, this.player);
 
     this.bindInput();
     this.applySettings(settings, true);
@@ -427,6 +425,14 @@ export class Simulator {
     this.player.flying = false;
     this.touchInput.up = 0;
     this.player.teleport(SPAWN.x, SPAWN.z, SPAWN.yaw);
+  }
+
+  travelTo(destination: TravelDestination): void {
+    this.keys.clear();
+    this.clearTouchInput();
+    this.player.flying = false;
+    this.player.teleport(destination.x, destination.z, destination.yaw);
+    this.placeTimer = this.hudTimer = 0;
   }
 
   teleport(x: number, z: number, yawDeg?: number): void {

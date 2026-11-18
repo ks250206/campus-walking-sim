@@ -71,6 +71,25 @@ export class Player {
     this.yaw = (yawDeg * Math.PI) / 180;
     this.pitch = 0;
     this.vx = this.vy = this.vz = 0;
+    this.onGround = true;
+    this.speed = this.bobAmount = 0;
+  }
+
+  /** テレポートで立つ床の高さで、体の周囲に歩ける余裕があるか。 */
+  canStandAt(x: number, z: number): boolean {
+    const b = this.bounds;
+    if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) return false;
+    const y = this.groundAt(x, z, Infinity);
+    if (this.collision.resolve(x, z, RADIUS + 0.5, y, this.resolved)) return false;
+    for (const [dx, dz] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ]) {
+      if (Math.abs(this.groundAt(x + dx, z + dz, Infinity) - y) > STEP_HEIGHT) return false;
+    }
+    return true;
   }
 
   /** マウスの移動量 (ピクセル) で視点を回す */

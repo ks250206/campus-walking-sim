@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Simulator } from './sim/engine';
 import type { HudState } from './sim/engine';
+import type { TravelDestination } from './sim/fastTravel';
 import { loadCampusData } from './sim/loadData';
 import { settingsStore, useSettings } from './sim/settings';
 import type { SourceCredit } from './sim/types';
 import { Hud } from './ui/Hud';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { TouchControls } from './ui/TouchControls';
+import { TravelMap } from './ui/TravelMap';
 
-type Phase = 'loading' | 'title' | 'playing' | 'paused' | 'error';
+type Phase = 'loading' | 'title' | 'playing' | 'map' | 'paused' | 'error';
 type Tab = 'main' | 'settings' | 'controls' | 'credits';
 
 const CONTROLS: [string, string][] = [
@@ -17,7 +19,7 @@ const CONTROLS: [string, string][] = [
   ['マウス', '視点を動かす'],
   ['Shift', '走る'],
   ['Space', 'ジャンプ'],
-  ['M', '全体図を開く / 閉じる'],
+  ['M', '全体図 / 建物へのファストトラベル'],
   ['F', '飛行モード (E / Q で上昇・下降)'],
   ['R', '入口 (すずかけ門) に戻る'],
   ['Esc', 'メニューを開く'],
@@ -29,7 +31,7 @@ const TOUCH_CONTROLS: [string, string][] = [
   ['走る', '押している間、走る'],
   ['ジャンプ', 'タップしてジャンプする'],
   ['飛行', '飛行モード (「上昇」「下降」を長押し)'],
-  ['地図', '全体図を開く / 閉じる'],
+  ['地図', '全体図 / 建物へのファストトラベル'],
   ['メニュー', '一時停止 / 入口に戻る'],
 ];
 
@@ -45,7 +47,6 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('main');
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [touch, setTouch] = useState(() => window.matchMedia('(pointer: coarse)').matches);
-  const [showMap, setShowMap] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [credits, setCredits] = useState<SourceCredit[]>([]);
 
@@ -70,7 +71,6 @@ export default function App() {
         sim.onHud = setHud;
         sim.onLockChange = (locked) => {
           setPhase((p) => (locked ? 'playing' : p === 'playing' ? 'paused' : p));
-          if (!locked) setShowMap(false);
         };
         setPhase('title');
       } catch (err) {
@@ -100,15 +100,43 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [phase]);
 
+  const openMap = useCallback(() => {
+    if (!sim) return;
+    setPhase('map');
+    if (touch) sim.stopTouch();
+    else sim.releaseLock();
+  }, [sim, touch]);
+
+  const closeMap = useCallback(() => {
+    if (!sim) return;
+    if (touch) {
+      sim.startTouch();
+      setPhase('playing');
+    } else {
+      sim.requestLock();
+    }
+  }, [sim, touch]);
+
   useEffect(() => {
-    if (phase !== 'playing' || touch) return;
+    if (touch || (phase !== 'playing' && phase !== 'map')) return;
     const onKey = (e: KeyboardEvent): void => {
-      if (e.code === 'KeyM' && !e.repeat) setShowMap((v) => !v);
-      if (e.code === 'KeyH' && !e.repeat) setShowHelp((v) => !v);
+      if (e.repeat || e.target instanceof HTMLSelectElement) return;
+      if (e.code === 'KeyM') {
+        if (phase === 'map') closeMap();
+        else openMap();
+      }
+      if (phase === 'playing' && e.code === 'KeyH') setShowHelp((v) => !v);
+      if (phase === 'map' && e.code === 'Escape') setPhase('paused');
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase, touch]);
+  }, [phase, touch, openMap, closeMap]);
+
+  const travel = (destination: TravelDestination): void => {
+    if (!sim) return;
+    sim.travelTo(destination);
+    closeMap();
+  };
 
   const start = (e: MouseEvent<HTMLButtonElement>): void => {
     if (!sim) return;
@@ -128,7 +156,6 @@ export default function App() {
 
   const pauseTouch = useCallback(() => {
     sim?.stopTouch();
-    setShowMap(false);
     setPhase('paused');
   }, [sim]);
 
@@ -163,19 +190,12 @@ export default function App() {
 
       {phase === 'playing' && sim && (
         <>
-          <Hud hud={hud} settings={settings} map={sim.map} landmarks={sim.landmarks} showMap={showMap} showHelp={showHelp} touch={touch} />
-          {touch && (
-            <TouchControls
-              sim={sim}
-              flying={hud.flying}
-              showHelp={showHelp}
-              showMap={showMap}
-              onToggleMap={() => setShowMap((v) => !v)}
-              onPause={pauseTouch}
-            />
-          )}
+          <Hud hud={hud} settings={settings} map={sim.map} showHelp={showHelp} touch={touch} />
+          {touch && <TouchControls sim={sim} flying={hud.flying} showHelp={showHelp} onToggleMap={openMap} onPause={pauseTouch} />}
         </>
       )}
+
+      {phase === 'map' && sim && <TravelMap sim={sim} hud={hud} touch={touch} onClose={closeMap} onTravel={travel} />}
 
       {phase === 'loading' && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-5 bg-slate-950">

@@ -42,14 +42,12 @@ export function TouchControls({
   sim,
   flying,
   showHelp,
-  showMap,
   onToggleMap,
   onPause,
 }: {
   sim: Simulator;
   flying: boolean;
   showHelp: boolean;
-  showMap: boolean;
   onToggleMap: () => void;
   onPause: () => void;
 }) {
@@ -58,13 +56,6 @@ export function TouchControls({
   const [knob, setKnob] = useState(ZERO);
 
   useEffect(() => () => sim.clearTouchInput(), [sim]);
-
-  const toggleMap = (): void => {
-    stick.current = look.current = null;
-    setKnob(ZERO);
-    sim.clearTouchInput();
-    onToggleMap();
-  };
 
   const moveStick = (e: PointerEvent<HTMLDivElement>): void => {
     if (stick.current !== e.pointerId) return;
@@ -89,64 +80,58 @@ export function TouchControls({
 
   return (
     <div className="pointer-events-none absolute inset-0 select-none" onContextMenu={(e) => e.preventDefault()}>
-      {showMap ? (
-        <div className="pointer-events-auto absolute inset-0 touch-none" />
-      ) : (
-        <>
-          <div
-            data-ui="touch-look"
-            className="pointer-events-auto absolute inset-0 touch-none"
-            onPointerDown={(e) => {
-              if (look.current || !capture(e)) return;
-              look.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
-            }}
-            onPointerMove={(e) => {
-              const last = look.current;
-              if (last?.id !== e.pointerId) return;
-              sim.lookTouch(e.clientX - last.x, e.clientY - last.y);
-              last.x = e.clientX;
-              last.y = e.clientY;
-            }}
-            onPointerUp={stopLook}
-            onPointerCancel={stopLook}
-            onLostPointerCapture={stopLook}
-          />
-          {showHelp && (
-            <p className="absolute bottom-36 left-1/2 w-max max-w-[90%] -translate-x-1/2 rounded-lg bg-black/65 px-3 py-2 text-center text-xs">
-              左下のスティックで移動 ・ 画面をドラッグして見回す
-            </p>
-          )}
-          <div
-            data-ui="touch-stick"
-            className="pointer-events-auto absolute bottom-4 left-4 grid size-28 touch-none place-items-center rounded-full border border-white/40 bg-slate-950/50"
-            onPointerDown={(e) => {
-              if (stick.current !== null || !capture(e)) return;
-              stick.current = e.pointerId;
-              moveStick(e);
-            }}
-            onPointerMove={moveStick}
-            onPointerUp={stopStick}
-            onPointerCancel={stopStick}
-            onLostPointerCapture={stopStick}
-          >
-            <div
-              className="pointer-events-none size-11 rounded-full border border-white/60 bg-white/35 shadow-md"
-              style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }}
-            />
-          </div>
-          <div className="absolute bottom-4 right-4 grid grid-cols-2 gap-2">
-            <button type="button" className={BUTTON} aria-pressed={flying} onClick={() => sim.toggleFlight()}>
-              飛行
-            </button>
-            <HoldButton label="走る" onHold={(pressed) => sim.setTouchAction('run', pressed)} />
-            {flying && <HoldButton label="下降" onHold={(pressed) => sim.setTouchAction('down', pressed)} />}
-            <HoldButton label={flying ? '上昇' : 'ジャンプ'} onHold={(pressed) => sim.setTouchAction('jump', pressed)} />
-          </div>
-        </>
+      <div
+        data-ui="touch-look"
+        className="pointer-events-auto absolute inset-0 touch-none"
+        onPointerDown={(e) => {
+          if (look.current || !capture(e)) return;
+          look.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        }}
+        onPointerMove={(e) => {
+          const last = look.current;
+          if (last?.id !== e.pointerId) return;
+          sim.lookTouch(e.clientX - last.x, e.clientY - last.y);
+          last.x = e.clientX;
+          last.y = e.clientY;
+        }}
+        onPointerUp={stopLook}
+        onPointerCancel={stopLook}
+        onLostPointerCapture={stopLook}
+      />
+      {showHelp && (
+        <p className="absolute bottom-36 left-1/2 w-max max-w-[90%] -translate-x-1/2 rounded-lg bg-black/65 px-3 py-2 text-center text-xs">
+          左下のスティックで移動 ・ 画面をドラッグして見回す
+        </p>
       )}
+      <div
+        data-ui="touch-stick"
+        className="pointer-events-auto absolute bottom-4 left-4 grid size-28 touch-none place-items-center rounded-full border border-white/40 bg-slate-950/50"
+        onPointerDown={(e) => {
+          if (stick.current !== null || !capture(e)) return;
+          stick.current = e.pointerId;
+          moveStick(e);
+        }}
+        onPointerMove={moveStick}
+        onPointerUp={stopStick}
+        onPointerCancel={stopStick}
+        onLostPointerCapture={stopStick}
+      >
+        <div
+          className="pointer-events-none size-11 rounded-full border border-white/60 bg-white/35 shadow-md"
+          style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }}
+        />
+      </div>
+      <div className="absolute bottom-4 right-4 grid grid-cols-2 gap-2">
+        <button type="button" className={BUTTON} aria-pressed={flying} onClick={() => sim.toggleFlight()}>
+          飛行
+        </button>
+        <HoldButton label="走る" onHold={(pressed) => sim.setTouchAction('run', pressed)} />
+        {flying && <HoldButton label="下降" onHold={(pressed) => sim.setTouchAction('down', pressed)} />}
+        <HoldButton label={flying ? '上昇' : 'ジャンプ'} onHold={(pressed) => sim.setTouchAction('jump', pressed)} />
+      </div>
       <div className="absolute right-4 top-4 flex gap-2">
-        <button type="button" className={BUTTON} aria-pressed={showMap} onClick={toggleMap}>
-          {showMap ? '地図を閉じる' : '地図'}
+        <button type="button" className={BUTTON} onClick={onToggleMap}>
+          地図
         </button>
         <button type="button" className={BUTTON} onClick={onPause}>
           メニュー
