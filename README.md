@@ -43,6 +43,15 @@ pnpm check      # フォーマット・lint・型チェック (vp check)
 
 WebGL 2 に対応した PC のブラウザで開いてください (マウスとキーボードで操作します)。
 
+## 公開 (GitHub Pages)
+
+`main` に push すると、GitHub Actions ([`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml)) が
+チェックとビルドを行い、`dist/` を GitHub Pages に公開します。
+
+初回だけ、リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にしてください。
+公開先は `https://<ユーザー名>.github.io/campus-walking-sim/` です
+(ビルドは相対パスなので、サブディレクトリでもそのまま動きます)。
+
 ## 操作
 
 | キー                       | 動作                                |

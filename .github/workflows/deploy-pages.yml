@@ -6,7 +6,6 @@ on:
   push:
     branches:
       - main
-      - claude/tokyo-science-univ-fps-simulator-9tfwst
   workflow_dispatch:
 
 permissions:
