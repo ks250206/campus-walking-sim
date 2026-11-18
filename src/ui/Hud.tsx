@@ -1,7 +1,7 @@
-import type { HudState, Landmark } from '../sim/engine';
+import type { HudState } from '../sim/engine';
 import type { MapImage } from '../sim/mapImage';
 import type { Settings } from '../sim/settings';
-import { FullMap, Minimap } from './Minimap';
+import { Minimap } from './Minimap';
 
 const COMPASS = ['北', '北東', '東', '南東', '南', '南西', '西', '北西'];
 const compassLabel = (deg: number): string => COMPASS[Math.round(deg / 45) % 8];
@@ -10,16 +10,12 @@ export function Hud({
   hud,
   settings,
   map,
-  landmarks,
-  showMap,
   showHelp,
   touch,
 }: {
   hud: HudState;
   settings: Settings;
   map: MapImage;
-  landmarks: Landmark[];
-  showMap: boolean;
   showHelp: boolean;
   touch: boolean;
 }) {
@@ -37,7 +33,7 @@ export function Hud({
         {settings.showFps && <div className="font-mono text-xs text-emerald-300">{hud.fps} FPS</div>}
       </div>
 
-      {settings.showMinimap && !showMap && (
+      {settings.showMinimap && (
         <div className={`absolute right-4 ${touch ? 'top-[4.25rem]' : 'top-4'}`}>
           <Minimap map={map} hud={hud} size={touch ? 96 : 184} />
         </div>
@@ -49,8 +45,6 @@ export function Hud({
           入口に戻る ・ <b>Esc</b> メニュー
         </div>
       )}
-
-      {showMap && <FullMap map={map} hud={hud} landmarks={landmarks} touch={touch} />}
     </div>
   );
 }
