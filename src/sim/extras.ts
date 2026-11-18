@@ -289,6 +289,11 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
     lowWing.t = lowWing.b + height;
     lowWing.n = 'R3低層棟';
     lowWing.lv = 1;
+    // 搬入車が引き戸へ回り込む舗装と、道路に面した長辺の作業帯。
+    json.areas.push({
+      k: 'asphalt',
+      r: [-77.3, -17.4, -88.08, -8.9, -43.96, 43.51, -47.2, 46.2, -93.9, -9.3, -79.9, -20.5],
+    });
   }
 
   const along = (d: number): [number, number] => [JUNCTION.x + G2_AXIS.x * d, JUNCTION.z + G2_AXIS.z * d];
