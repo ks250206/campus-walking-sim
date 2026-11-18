@@ -1,0 +1,58 @@
+# ビルドして GitHub Pages に公開する。
+# リポジトリの Settings → Pages → Build and deployment → Source を「GitHub Actions」にしておくこと。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/tokyo-science-univ-fps-simulator-9tfwst
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 公開中のデプロイは途中で止めず、後から来たものを待たせる
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Install pnpm (package.json の devEngines に合わせる)
+        run: npm install --global "pnpm@$(node -p "require('./package.json').devEngines.packageManager.version")"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check (format, lint, types)
+        run: pnpm run check
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
