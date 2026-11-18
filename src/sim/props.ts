@@ -4,6 +4,7 @@ import { CanvasSource, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { Decks } from './decks';
 import type { CampusExtras, StairSpec, TunnelSpec, WoodDeckSpec } from './extras';
+import { approachLength, approachPoint } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon, signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder, linearRgb } from './meshBuilder';
@@ -63,6 +64,7 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   addBridges(mb, decks, hf, collision);
   addTennisCourts(mb, json, hf, collision);
   addGate(mb, signMesh, signs, json, hf, collision);
+  addGateApproach(mb, hf, collision);
   addBuildingSigns(mb, signMesh, signs, json, hf, campusRoads, collision);
   const lampPositions = addLamps(mb, lamps, hf, campusRoads, inBuilding, collision);
   addCars(mb, json, hf, collision);
@@ -280,7 +282,14 @@ function addBridges(mb: MeshBuilder, decks: Decks, hf: Heightfield, collision: C
 }
 
 /** 支柱と横桟だけの手すり */
-function addRail(mb: MeshBuilder, a: number[], b: number[], height: number, color: number): void {
+function addRail(
+  mb: MeshBuilder,
+  a: number[],
+  b: number[],
+  height: number,
+  color: number,
+  bars = [height, height * 0.55, height * 0.12],
+): void {
   setHex(mb, color);
   const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
   if (len < 0.1) return;
@@ -293,7 +302,7 @@ function addRail(mb: MeshBuilder, a: number[], b: number[], height: number, colo
   const uz = (b[2] - a[2]) / len;
   const nx = -uz * 0.025;
   const nz = ux * 0.025;
-  for (const h of [height, height * 0.55, height * 0.12]) {
+  for (const h of bars) {
     const p0 = [a[0] - nx, a[1] + h, a[2] - nz];
     const p1 = [b[0] - nx, b[1] + h, b[2] - nz];
     const q0 = [a[0] + nx, a[1] + h, a[2] + nz];
@@ -739,6 +748,48 @@ function addTennisCourts(mb: MeshBuilder, json: CampusJson, hf: Heightfield, col
       const r = q[(i + 1) % 4];
       addRail(mb, [p[0], y, p[2]], [r[0], y, r[2]], 3, 0x2f6b4c);
     }
+  }
+}
+
+/** 写真7の車止めは中央の1本が構内寄り。左右の間を歩いて通り抜けられる。 */
+function addGateApproach(mb: MeshBuilder, hf: Heightfield, collision: CollisionWorld): void {
+  const ground = (along: number, right: number, lift = 0): number[] => {
+    const [x, z] = approachPoint(along, right);
+    return [x, hf.heightAt(x, z) + lift, z];
+  };
+  for (const [along, right] of [
+    [11, -1.35],
+    [12.8, 0],
+    [11, 1.35],
+  ]) {
+    const [x, y, z] = ground(along, right);
+    setHex(mb, 0xbcc2c4);
+    mb.cylinder(x, y - 0.04, z, 0.11, 0.11, 0.79, 12, true);
+    setHex(mb, 0xe6bc4b);
+    mb.cylinder(x, y + 0.62, z, 0.113, 0.113, 0.055, 12);
+    collision.addCircle(x, z, 0.11, y + 0.75);
+  }
+  // 左縁の短い手すり。斜面に沿って支柱と握りをつなぐ。
+  const a = ground(3, -2.22);
+  const b = ground(8, -2.22);
+  addRail(mb, a, b, 0.78, 0xbfc2bd, [0.78]);
+  collision.addSegment(a[0], a[2], b[0], b[2], Math.max(a[1], b[1]) + 0.78);
+
+  // 誘導ブロックとその縦リブ。短い区間ごとに地表をサンプリングする。
+  const strip = (along: number, end: number, right: number, width: number, lift: number): void => {
+    mb.quadPoints(
+      ground(along, right - width / 2, lift),
+      ground(along, right + width / 2, lift),
+      ground(end, right + width / 2, lift),
+      ground(end, right - width / 2, lift),
+    );
+  };
+  for (let along = 0; along < approachLength; along += 0.6) {
+    const end = Math.min(along + 0.59, approachLength);
+    setHex(mb, 0xd4af5e);
+    strip(along, end, -0.85, 0.31, 0.018);
+    setHex(mb, 0xe9c777);
+    for (const right of [-0.94, -0.88, -0.82, -0.76]) strip(along, end, right, 0.023, 0.024);
   }
 }
 

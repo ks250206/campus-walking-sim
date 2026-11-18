@@ -3,6 +3,7 @@ import type { ShaderBit } from '@pixi/3d';
 import { CanvasSource, Rectangle, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { CampusExtras } from './extras';
+import { approachLength, approachPoint } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder } from './meshBuilder';
@@ -266,6 +267,32 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     } else {
       addSimpleTree(builderFor(far, spec.x, spec.z), spec, y, rand);
     }
+  }
+
+  // 写真7の右手の刈り込み。地面の勾配に合わせて上面と側面の葉を重ねる。
+  const hedgeRand = mulberry32(714);
+  for (let along = 0.6; along < approachLength - 0.5; along += 0.58) {
+    const [x, z] = approachPoint(along, 3.17);
+    const y = hf.surfaceAt(x, z);
+    const mb = builderFor(near, x, z);
+    const h = 1.12 + hedgeRand() * 0.12;
+    const shade = 0.77 + hedgeRand() * 0.16;
+    mb.color(shade * 1.12, shade, shade * 0.73, 0.25);
+    mb.setData(0.014, hedgeRand() * Math.PI * 2, 0, 0);
+    const rotation = hedgeRand() * Math.PI;
+    for (let k = 0; k < 3; k++) {
+      const angle = rotation + (k * Math.PI) / 3;
+      addCard(mb, x, y + h / 2, z, Math.cos(angle), 0, Math.sin(angle), 0, h * 0.65, 0, x, y, z, 4, k === 1);
+    }
+    addCard(mb, x, y + h * 0.89, z, 1, 0, 0, 0, 0.05, 0.95, x, y, z, 4, false);
+    collision.addCircle(x, z, 0.77, y + h);
+  }
+  // 車止めの先、左側の針葉樹のまとまり。
+  for (const along of [17, 19, 21, 24]) {
+    const [x, z] = approachPoint(along, -4.7 - hedgeRand());
+    const y = hf.surfaceAt(x, z);
+    addDetailedTree(builderFor(near, x, z), { x, z, height: 3.4 + hedgeRand() * 1.1, type: 1 }, y, hedgeRand);
+    collision.addCircle(x, z, 0.16, y + 2);
   }
 
   for (const [map, shadow] of [
