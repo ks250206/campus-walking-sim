@@ -134,26 +134,6 @@ export function paintGround(json: CampusJson, rect: PaintRect, maskSize: number)
       ctx.stroke();
     }
     ctx.setLineDash([]);
-    // 横断歩道 (最寄りの車道に直交する縞)
-    for (const poi of json.pois) {
-      if (poi.k !== 'crossing') continue;
-      const hit = nearestRoad(roads, poi.x, poi.z);
-      if (!hit || hit.dist > 4) continue;
-      const { dirX, dirZ, road } = hit;
-      const nx = -dirZ;
-      const nz = dirX;
-      const stripes = Math.max(3, Math.floor((road.w - 0.6) / 1.1));
-      for (let i = 0; i < stripes; i++) {
-        const off = (i - (stripes - 1) / 2) * 1.1;
-        const cx = poi.x + nx * off;
-        const cz = poi.z + nz * off;
-        ctx.beginPath();
-        ctx.moveTo(cx - dirX * 1.6, cz - dirZ * 1.6);
-        ctx.lineTo(cx + dirX * 1.6, cz + dirZ * 1.6);
-        ctx.lineWidth = 0.55;
-        ctx.stroke();
-      }
-    }
   });
 
   const grassy = channel((ctx) => {
@@ -262,26 +242,4 @@ function offsetPolyline(p: number[], d: number): number[] {
     out.push(p[i * 2] - ((bz - az) / len) * d, p[i * 2 + 1] + ((bx - ax) / len) * d);
   }
   return out;
-}
-
-function nearestRoad(roads: RoadData[], x: number, z: number): { road: RoadData; dist: number; dirX: number; dirZ: number } | null {
-  let best: { road: RoadData; dist: number; dirX: number; dirZ: number } | null = null;
-  for (const road of roads) {
-    if (!VEHICLE.has(road.k)) continue;
-    const p = road.p;
-    for (let i = 0; i + 3 < p.length; i += 2) {
-      const dx = p[i + 2] - p[i];
-      const dz = p[i + 3] - p[i + 1];
-      const l2 = dx * dx + dz * dz;
-      if (l2 === 0) continue;
-      let t = ((x - p[i]) * dx + (z - p[i + 1]) * dz) / l2;
-      t = Math.max(0, Math.min(1, t));
-      const dist = Math.hypot(x - (p[i] + dx * t), z - (p[i + 1] + dz * t));
-      if (!best || dist < best.dist) {
-        const len = Math.sqrt(l2);
-        best = { road, dist, dirX: dx / len, dirZ: dz / len };
-      }
-    }
-  }
-  return best;
 }

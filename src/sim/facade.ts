@@ -653,7 +653,7 @@ const facadeBit: ShaderBit = {
     normal = normalize(normal + (tng * (pane - 0.5) + vec3(0.0, fract(pane * 9.3) - 0.5, 0.0)) * 0.05 * glassAmt);
     specularNormal = normal;
 
-    emissive += interior * vec3(1.0, 0.93, 0.8) * lit * glassAmt * (1.0 - blind * 0.5) * 2.2;
+    emissive += interior * vec3(1.0, 0.9, 0.72) * lit * glassAmt * (1.0 - blind * 0.5) * 1.25;
   }
 `,
     },

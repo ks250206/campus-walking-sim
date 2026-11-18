@@ -14,6 +14,8 @@ export interface PropsResult {
   node: Container3D;
   /** 街灯の灯具 (夜に光らせる) */
   lampMaterial: Material3D;
+  /** 灯具の位置 [x, y, z, ...] */
+  lampPositions: number[];
 }
 
 const CAR_COLORS = [0xf2f2f0, 0xd9dadb, 0x2b2d30, 0x8a8f95, 0x1f3a5f, 0x7a1f1f, 0xb9b3a4, 0x3d4a3f, 0xc8ccd0];
@@ -60,10 +62,11 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   addTennisCourts(mb, json, hf, collision);
   addGate(mb, signMesh, signs, json, hf, collision);
   addBuildingSigns(mb, signMesh, signs, json, hf, campusRoads, collision);
-  addLamps(mb, lamps, hf, campusRoads, inBuilding, collision);
+  const lampPositions = addLamps(mb, lamps, hf, campusRoads, inBuilding, collision);
   addCars(mb, json, hf, collision);
   addSmallProps(mb, json, hf, collision);
   addBarriers(mb, json, hf, collision);
+  addCrosswalks(mb, json, hf);
   addPylons(mb, json, hf);
 
   const propGeometry = mb.build();
@@ -95,7 +98,7 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
 
   const water = buildWater(json, hf);
   if (water) node.addChild(water);
-  return { node, lampMaterial };
+  return { node, lampMaterial, lampPositions };
 }
 
 // ---------------------------------------------------------------- 文字入りのサイン
@@ -395,12 +398,12 @@ function addGate(
     const cx = gate.x + nx * side * (half + 1.6);
     const cz = gate.z + nz * side * (half + 1.6);
     setHex(mb, 0xb5b8b8);
-    mb.box(cx, y - 0.4, cz, 0.35, 3.3, 3.2, rot + Math.PI / 2);
+    mb.box(cx, y - 0.4, cz, 0.35, 3.3, 3.2, rot);
     collision.addSegment(cx - nx * 1.6, cz - nz * 1.6, cx + nx * 1.6, cz + nz * 1.6, y + 2.9);
   }
   // 庇 (金属で縁取った薄い屋根)
   setHex(mb, 0x8f9498);
-  mb.box(gate.x, y + 2.95, gate.z, 2.6, 0.14, (half + 3.2) * 2, rot + Math.PI / 2, true, true);
+  mb.box(gate.x, y + 2.95, gate.z, 2.6, 0.14, (half + 3.2) * 2, rot, true, true);
   // 銘板
   const plate = signs.add(1024, 256, (ctx, w, h) => {
     const grad = ctx.createLinearGradient(0, 0, 0, h);
@@ -526,8 +529,9 @@ function addLamps(
   roads: RoadData[],
   inBuilding: (x: number, z: number) => boolean,
   collision: CollisionWorld,
-): void {
+): number[] {
   const placed: number[] = [];
+  const heads: number[] = [];
   for (const road of roads) {
     if (!['service', 'footway', 'pedestrian', 'unclassified', 'tertiary'].includes(road.k) || road.sv === 'parking_aisle') continue;
     const walk = road.k === 'footway' || road.k === 'pedestrian';
@@ -568,11 +572,13 @@ function addLamps(
         mb.box(x + ax * 0.3, y + h - 0.06, z + az * 0.3, 0.7, 0.06, 0.07, armRot);
         lamps.color(1, 1, 1, 1);
         lamps.box(x + ax * 0.58, y + h - 0.16, z + az * 0.58, 0.46, 0.1, 0.2, armRot, true, true);
+        heads.push(x + ax * 0.58, y + h - 0.3, z + az * 0.58);
         collision.addCircle(x, z, 0.1, y + h);
       }
       dist -= len;
     }
   }
+  return heads;
 }
 
 // ---------------------------------------------------------------- 駐車している車
@@ -744,6 +750,39 @@ function addBarriers(mb: MeshBuilder, json: CampusJson, hf: Heightfield, collisi
       const c = [p[i + 2], hf.heightAt(p[i + 2], p[i + 3]), p[i + 3]];
       addRail(mb, a, c, height, color);
       collision.addSegment(a[0], a[2], c[0], c[2], Math.max(a[1], c[1]) + height);
+    }
+  }
+}
+
+// ---------------------------------------------------------------- 横断歩道
+/** 最寄りの車道に直交する白い縞を、路面のすぐ上に置く */
+function addCrosswalks(mb: MeshBuilder, json: CampusJson, hf: Heightfield): void {
+  const roads = json.roads.filter(
+    (r) => !r.br && !r.tn && ['trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'service'].includes(r.k),
+  );
+  setHex(mb, 0xe4e4df);
+  for (const p of json.pois) {
+    if (p.k !== 'crossing' || !hf.contains(p.x, p.z)) continue;
+    const hit = nearestRoadPoint(roads, p.x, p.z);
+    if (!hit || hit.dist > 4) continue;
+    const { dx, dz } = hit;
+    const nx = -dz;
+    const nz = dx;
+    const stripes = Math.max(3, Math.floor((hit.road.w - 0.5) / 0.9));
+    for (let i = 0; i < stripes; i++) {
+      const off = (i - (stripes - 1) / 2) * 0.9;
+      const cx = hit.x + nx * off;
+      const cz = hit.z + nz * off;
+      const corner = (a: number, b: number): number[] => {
+        const x = cx + dx * a + nx * b;
+        const z = cz + dz * a + nz * b;
+        return [x, hf.heightAt(x, z) + 0.035, z];
+      };
+      const q = [corner(-1.6, -0.225), corner(1.6, -0.225), corner(1.6, 0.225), corner(-1.6, 0.225)];
+      // どちら回りでも表になるよう、上向きになる順で追加する
+      const up = (q[1][0] - q[0][0]) * (q[3][2] - q[0][2]) - (q[1][2] - q[0][2]) * (q[3][0] - q[0][0]);
+      if (up < 0) mb.quadPoints(q[0], q[1], q[2], q[3]);
+      else mb.quadPoints(q[0], q[3], q[2], q[1]);
     }
   }
 }

@@ -135,24 +135,24 @@ export class Sky {
     d.y = lightUp;
     d.z = (-north / hl) * hs;
 
-    const day = smooth(-0.1, 0.18, up); // 0 = 夜, 1 = 昼
+    const day = smooth(-0.24, 0.14, up); // 0 = 夜, 1 = 昼
     const golden = 1 - smooth(0.05, 0.42, up); // 朝夕の赤み
 
     const sunCol = mixRgb([1.0, 0.96, 0.88], [1.0, 0.56, 0.27], golden);
     this.sun.color = toHex(sunCol);
-    this.sun.intensity = 4.6 * day * (1 - golden * 0.5);
+    this.sun.intensity = 4.6 * smooth(-0.02, 0.16, up) * (1 - golden * 0.5);
 
-    const zenith = mixRgb(mixRgb([0.015, 0.02, 0.05], [0.27, 0.46, 0.76], day), [0.24, 0.32, 0.56], golden * day * 0.6);
-    const horizon = mixRgb(mixRgb([0.03, 0.04, 0.08], [0.76, 0.84, 0.91], day), [0.98, 0.66, 0.42], golden * day * 0.8);
+    const zenith = mixRgb(mixRgb([0.03, 0.045, 0.1], [0.27, 0.46, 0.76], day), [0.24, 0.32, 0.56], golden * day * 0.6);
+    const horizon = mixRgb(mixRgb([0.07, 0.09, 0.16], [0.76, 0.84, 0.91], day), [0.98, 0.66, 0.42], golden * day * 0.8);
 
     // 天空光は空の色そのままだと青すぎるので、雲や霞の白を混ぜた色にする
     const skyLight = mixRgb(mixRgb(zenith, horizon, 0.6), [0.86, 0.88, 0.9], 0.45 * day);
     this.environment.skyColor = toHex(skyLight);
-    this.environment.groundColor = toHex(mixRgb([0.02, 0.02, 0.03], [0.46, 0.43, 0.36], day));
-    this.environment.intensity = 0.1 + 0.62 * day;
+    this.environment.groundColor = toHex(mixRgb([0.05, 0.055, 0.075], [0.46, 0.43, 0.36], day));
+    this.environment.intensity = 0.2 + 0.52 * day;
     this.fog.color = toHex(horizon);
     this.view.background = toHex(horizon);
-    this.night = 1 - smooth(-0.02, 0.22, up);
+    this.night = 1 - smooth(-0.06, 0.16, up);
 
     const data = this.material.data as Record<string, unknown>;
     data.sunDir = [east, up, -north];

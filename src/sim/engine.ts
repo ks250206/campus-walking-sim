@@ -1,4 +1,4 @@
-import { Container3D, View3D } from '@pixi/3d';
+import { Container3D, PointLight, View3D } from '@pixi/3d';
 import type { Pass3D } from '@pixi/3d';
 import { FxaaEffect, SsaoEffect } from '@pixi/3d/extras';
 import { Application, RendererType } from 'pixi.js';
@@ -50,6 +50,36 @@ const SHADOW_QUALITY: Record<Exclude<ShadowLevel, 'off'>, 'low' | 'medium' | 'hi
 /** スタート地点: すずかけ門を入ったところ */
 const SPAWN = { x: -214, z: -146.5, yaw: -84 };
 
+/** すずかけ門のすぐ内側、道の上に、構内を向いて立つ位置を求める */
+function locateSpawn(json: CampusData['json']): void {
+  const gate = json.pois.find((p) => p.k === 'gate' && p.n === 'すずかけ門');
+  if (!gate) return;
+  let best = { dist: Infinity, x: gate.x, z: gate.z, dx: 1, dz: 0 };
+  for (const road of json.roads) {
+    if (road.br || road.tn || !['footway', 'pedestrian', 'path', 'service'].includes(road.k)) continue;
+    const p = road.p;
+    for (let i = 0; i + 3 < p.length; i += 2) {
+      const ex = p[i + 2] - p[i];
+      const ez = p[i + 3] - p[i + 1];
+      const l2 = ex * ex + ez * ez;
+      if (l2 === 0) continue;
+      const t = Math.max(0, Math.min(1, ((gate.x - p[i]) * ex + (gate.z - p[i + 1]) * ez) / l2));
+      const qx = p[i] + ex * t;
+      const qz = p[i + 1] + ez * t;
+      const dist = Math.hypot(gate.x - qx, gate.z - qz);
+      if (dist < best.dist) best = { dist, x: qx, z: qz, dx: ex / Math.sqrt(l2), dz: ez / Math.sqrt(l2) };
+    }
+  }
+  // 道の 2 方向のうち、キャンパスの中心へ向かうほうを前にする
+  if (best.dx * -best.x + best.dz * -best.z < 0) {
+    best.dx = -best.dx;
+    best.dz = -best.dz;
+  }
+  SPAWN.x = best.x + best.dx * 4;
+  SPAWN.z = best.z + best.dz * 4;
+  SPAWN.yaw = (Math.atan2(-best.dx, -best.dz) * 180) / Math.PI;
+}
+
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
 export class Simulator {
@@ -80,6 +110,10 @@ export class Simulator {
   private readonly campusBoundary: number[][];
   private readonly facadeMaterials: Material3D[];
   private readonly lampMaterial: Material3D;
+  private readonly lampPositions: number[];
+  /** 近くの街灯だけを本物の光源にする (光源の数を抑えるため) */
+  private readonly lampLights: PointLight[] = [];
+  private lampTimer = 0;
 
   private constructor(app: Application, view: View3D, world: Container3D, data: CampusData, settings: Settings, parts: BuiltWorld) {
     this.app = app;
@@ -91,8 +125,14 @@ export class Simulator {
     this.map = parts.map;
     this.facadeMaterials = parts.facadeMaterials;
     this.lampMaterial = parts.lampMaterial;
+    this.lampPositions = parts.lampPositions;
+    for (let i = 0; i < 8; i++) {
+      const light = new PointLight({ color: 0xffdcae, intensity: 0, range: 17, radius: 0.6 });
+      light.visible = false;
+      world.addChild(light);
+      this.lampLights.push(light);
+    }
     this.campusBoundary = data.json.campusBoundary;
-    void world;
 
     for (const b of data.json.buildings) {
       if (!b.n || !b.c) continue;
@@ -176,6 +216,7 @@ export class Simulator {
 
     const b = json.meta.bounds;
     const player = new Player(hf, collision, decks, { minX: b.minX + 4, maxX: b.maxX - 4, minZ: b.minZ + 4, maxZ: b.maxZ - 4 });
+    locateSpawn(json);
     player.teleport(SPAWN.x, SPAWN.z, SPAWN.yaw);
 
     onProgress('シェーダを準備中', 0.92);
@@ -186,6 +227,7 @@ export class Simulator {
       map: renderMapImage(json),
       facadeMaterials: buildings.facadeMaterials,
       lampMaterial: props.lampMaterial,
+      lampPositions: props.lampPositions,
     });
     // 最初の 1 フレームでシェーダをコンパイルしておく
     await nextFrame();
@@ -215,6 +257,11 @@ export class Simulator {
       const night = this.sky.night;
       for (const m of this.facadeMaterials) setFacadeNight(m, night, 0.45);
       if (this.lampMaterial.emissive) this.lampMaterial.emissive.strength = night * 7;
+      for (const light of this.lampLights) {
+        light.visible = night > 0.05;
+        light.intensity = night * 46;
+      }
+      this.lampTimer = 0;
     }
 
     // 見通し距離: 霞の濃さ (およそ 0.6 km 〜 6 km)
@@ -359,6 +406,12 @@ export class Simulator {
     const cam = camera.position;
     this.sky.update(cam.x, cam.y, cam.z);
 
+    this.lampTimer -= dt;
+    if (this.lampTimer <= 0 && this.sky.night > 0.05) {
+      this.lampTimer = 0.5;
+      this.assignLampLights(cam.x, cam.z);
+    }
+
     this.fpsSmooth += (ticker.FPS - this.fpsSmooth) * 0.05;
     this.hudTimer -= dt;
     this.placeTimer -= dt;
@@ -380,6 +433,23 @@ export class Simulator {
       });
     }
   };
+
+  /** カメラに近い街灯から順に、光源を割り当てる */
+  private assignLampLights(x: number, z: number): void {
+    const pos = this.lampPositions;
+    const nearest: { d: number; i: number }[] = [];
+    for (let i = 0; i < pos.length; i += 3) {
+      const d = (pos[i] - x) ** 2 + (pos[i + 2] - z) ** 2;
+      if (d > 140 * 140) continue;
+      nearest.push({ d, i });
+    }
+    nearest.sort((a, b) => a.d - b.d);
+    this.lampLights.forEach((light, k) => {
+      const hit = nearest[k];
+      light.visible = Boolean(hit);
+      if (hit) light.position.set(pos[hit.i], pos[hit.i + 1], pos[hit.i + 2]);
+    });
+  }
 
   private describePlace(x: number, z: number): string {
     let best: Landmark | null = null;
@@ -429,4 +499,5 @@ interface BuiltWorld {
   map: MapImage;
   facadeMaterials: Material3D[];
   lampMaterial: Material3D;
+  lampPositions: number[];
 }
