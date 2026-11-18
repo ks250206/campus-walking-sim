@@ -3,7 +3,7 @@ import type { ShaderBit } from '@pixi/3d';
 import { CanvasSource, Rectangle, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { CampusExtras } from './extras';
-import { approachLength, approachPoint, gatePoint } from './gateApproach';
+import { approachPoint, gatePoint, okabeHedge } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder } from './meshBuilder';
@@ -306,12 +306,19 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     collision.addCircle(x, z, 0.2, y + height * 0.4);
   }
   const hedgeRand = mulberry32(714);
-  for (let along = 0.6; along < approachLength - 0.5; along += 0.58) {
-    const [x, z] = approachPoint(along, 3.17);
-    const y = hf.surfaceAt(x, z);
-    const h = 1.12 + hedgeRand() * 0.12;
-    hedgeClump(x, y, z, h, hedgeRand);
-    collision.addCircle(x, z, 0.77, y + h);
+  for (let i = 1; i < okabeHedge.length; i++) {
+    const [ax, az] = okabeHedge[i - 1];
+    const [bx, bz] = okabeHedge[i];
+    const count = Math.ceil(Math.hypot(bx - ax, bz - az) / 0.58);
+    for (let j = 0; j < count; j++) {
+      const t = j / count;
+      const x = ax + (bx - ax) * t;
+      const z = az + (bz - az) * t;
+      const y = hf.surfaceAt(x, z);
+      const h = 1.12 + hedgeRand() * 0.12;
+      hedgeClump(x, y, z, h, hedgeRand);
+      collision.addCircle(x, z, 0.77, y + h);
+    }
   }
   // 車止めの先、左側の針葉樹のまとまり。
   for (const along of [17, 19, 21, 24]) {

@@ -21,3 +21,13 @@ export const gateForward = { x: (-198.84 - gateX) / length, z: (-133.11 - gateZ)
 export function gatePoint(along: number, right: number): [number, number] {
   return [gateX + gateForward.x * along - gateForward.z * right, gateZ + gateForward.z * along + gateForward.x * right];
 }
+
+// 地理院の空中写真とR3-A・B棟、既存の歩道を照合した岡部野営場の生け垣中心線。
+// 門から来ると歩道右側を進み、広場との境で折れて芝地の短辺を囲む。
+export const okabeHedge = [
+  approachPoint(0.6, 3.17),
+  approachPoint(approachLength, 3.17),
+  [-96.1, -98.4],
+  [-79.4, -91.9],
+  [-101.4, -53.7],
+] as const;

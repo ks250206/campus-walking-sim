@@ -1,3 +1,4 @@
+import { okabeHedge } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon } from './heightfield';
 import type { CampusJson, RoadData } from './types';
@@ -50,6 +51,7 @@ export interface StairSpec {
   steps: number;
   /** 上下の踊り場 (コンクリートの床) の長さ */
   landing: number;
+  handrails?: boolean;
 }
 
 /** 地形とは別に歩ける面 (トンネルの床、階段の斜面) */
@@ -208,6 +210,75 @@ function buildWoodDeck(json: CampusJson, hf: Heightfield): WoodDeckSpec {
   };
 }
 
+/** 岡部野営場脇。広場の輪郭は航空写真、階段の中心線はOSMの steps に合わせる。 */
+function addOkabePlaza(json: CampusJson, hf: Heightfield, strips: WalkStrip[]): StairSpec {
+  const [ax, az] = [-77.05, -68.62];
+  const [bx, bz] = [-73.34, -64.58];
+  const width = 15;
+  const len = Math.hypot(bx - ax, bz - az);
+  const ux = (bx - ax) / len;
+  const uz = (bz - az) / len;
+  const point = (d: number, side: number): [number, number] => [ax + ux * d - uz * side, az + uz * d + ux * side];
+  // DEMでは階段がなだらかに均されているので、上は広場、下は車道側の高さを採る。
+  const ay = hf.heightAt(-79.15, -70.97);
+  const by = hf.heightAt(-69.27, -59.94);
+  const steps = Math.round((ay - by) / 0.14);
+  const landing = 1.4;
+  const half = width / 2;
+
+  // 踊り場まで幅広く舗装し、野営場の生け垣と階段脇の植栽の間に通路を残す。
+  json.areas.push({
+    k: 'plaza',
+    n: '岡部野営場前広場',
+    noLamps: true,
+    r: [
+      ...okabeHedge.slice(1),
+      [-103.4, -50.3],
+      [-96.1, -43.9],
+      [-94.4, -45.3],
+      [-98.6, -49.8],
+      [-97.7, -53.7],
+      [-95.3, -59.6],
+      [-92, -63.7],
+      [-87.5, -67],
+      [-84.7, -67.2],
+      // 階段と、下の踊り場から車道縁へ抜ける舗装面。
+      point(0, half),
+      point(11.5, half),
+      point(11.5, -half),
+      point(0, -half),
+      [-73.4, -77.6],
+      [-69.5, -84.3],
+      [-67.8, -90.2],
+      [-68.9, -94.3],
+      [-71.3, -96.6],
+      [-75.4, -98.2],
+      [-83.6, -100.1],
+      [-86.9, -103.3],
+      [-98, -104.2],
+      [-105.7, -104.8],
+    ].flat(),
+  });
+  const road = json.roads.find((r) => r.k === 'steps' && near(r.p[0], ax) && near(r.p[1], az));
+  if (road) road.w = width;
+
+  // 踏面の下だけ地形を下げ、歩行面も描画する各段と同じ高さにする。
+  const cut = 0.3;
+  const strip = (from: number, to: number, y: number): void => {
+    const [x0, z0] = point(from, 0);
+    const [x1, z1] = point(to, 0);
+    strips.push({ ax: x0, az: z0, bx: x1, bz: z1, ay: y, by: y, halfWidth: half });
+  };
+  // 踊り場の前後は、左右の端も含めて元の地面へなじませる。
+  hf.flatten(rectAround(...point(-landing - 1, 0), ax, az, width + 1), ay - 0.035, 2);
+  hf.flatten(rectAround(bx, bz, ...point(len + landing + 1, 0), width + 1), by - 0.035, 2);
+  hf.shapeCorridor({ ax, az, bx, bz, ay: ay - cut, by: by - cut, halfWidth: half + 0.8, feather: 1.6, flatEnds: true, mode: 'set' });
+  strip(-landing, 0, ay);
+  for (let i = 0; i < steps; i++) strip((len * i) / steps, (len * (i + 1)) / steps, ay + ((by - ay) * (i + 1)) / steps);
+  strip(len, len + landing, by);
+  return { ax, az, bx, bz, ay, by, width, steps, landing, handrails: false };
+}
+
 export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtras {
   const along = (d: number): [number, number] => [JUNCTION.x + G2_AXIS.x * d, JUNCTION.z + G2_AXIS.z * d];
   const [topX, topZ] = along(9); // 階段の上端
@@ -307,6 +378,8 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
   // 通り抜けの床は、壁から壁まで舗装する
   json.areas.push({ k: 'plaza', r: g2Zone }, { k: 'plaza', r: g4Zone });
 
+  const strips: WalkStrip[] = [];
+  const okabeStairs = addOkabePlaza(json, hf, strips);
   const woodDeck = buildWoodDeck(json, hf);
 
   const ceilingTop = Math.max(TUNNEL_W.y, TUNNEL_E.y) + TUNNEL_HEIGHT + 0.35;
@@ -333,7 +406,7 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
   const LANDING = 2.2;
   const landTop = along(9 - LANDING);
   const landBottom = along(25 + LANDING);
-  const strips: WalkStrip[] = [
+  strips.push(
     {
       ax: TUNNEL_W.x - tx * apron,
       az: TUNNEL_W.z - tz * apron,
@@ -347,7 +420,7 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
     // 階段の上下の踊り場
     { ax: landTop[0], az: landTop[1], ay: stairTopY, bx: topX, bz: topZ, by: stairTopY, halfWidth: 1.8 },
     { ax: bottomX, az: bottomZ, ay: G2_FLOOR, bx: landBottom[0], bz: landBottom[1], by: G2_FLOOR, halfWidth: 1.8 },
-  ];
+  );
 
   return {
     woodDecks: [woodDeck],
@@ -368,7 +441,10 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
         height: TUNNEL_HEIGHT,
       },
     ],
-    stairs: [{ ax: topX, az: topZ, ay: stairTopY, bx: bottomX, bz: bottomZ, by: G2_FLOOR, width: 3.6, steps: 36, landing: LANDING }],
+    stairs: [
+      okabeStairs,
+      { ax: topX, az: topZ, ay: stairTopY, bx: bottomX, bz: bottomZ, by: G2_FLOOR, width: 3.6, steps: 36, landing: LANDING },
+    ],
     strips,
     clearings: [
       { p: slope, radius: 2.8 },
