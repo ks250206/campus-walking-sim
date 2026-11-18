@@ -3,7 +3,7 @@ import type { ShaderBit } from '@pixi/3d';
 import { CanvasSource, Rectangle, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { CampusExtras } from './extras';
-import { approachLength, approachPoint } from './gateApproach';
+import { approachLength, approachPoint, gatePoint } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder } from './meshBuilder';
@@ -269,22 +269,48 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     }
   }
 
-  // 写真7の右手の刈り込み。地面の勾配に合わせて上面と側面の葉を重ねる。
-  const hedgeRand = mulberry32(714);
-  for (let along = 0.6; along < approachLength - 0.5; along += 0.58) {
-    const [x, z] = approachPoint(along, 3.17);
-    const y = hf.surfaceAt(x, z);
+  // 写真6は門の左に背の高い生け垣、写真7は高架の先の歩道右側に低い刈り込み。
+  const hedgeClump = (x: number, y: number, z: number, h: number, rand: () => number, olive = false): void => {
     const mb = builderFor(near, x, z);
-    const h = 1.12 + hedgeRand() * 0.12;
-    const shade = 0.77 + hedgeRand() * 0.16;
-    mb.color(shade * 1.12, shade, shade * 0.73, 0.25);
-    mb.setData(0.014, hedgeRand() * Math.PI * 2, 0, 0);
-    const rotation = hedgeRand() * Math.PI;
+    const shade = 0.77 + rand() * 0.16;
+    mb.color(shade * (olive ? 1.18 : 1.12), shade * (olive ? 0.7 : 1), shade * (olive ? 0.46 : 0.73), 0.25);
+    mb.setData(0.014, rand() * Math.PI * 2, 0, 0);
+    const rotation = rand() * Math.PI;
     for (let k = 0; k < 3; k++) {
       const angle = rotation + (k * Math.PI) / 3;
       addCard(mb, x, y + h / 2, z, Math.cos(angle), 0, Math.sin(angle), 0, h * 0.65, 0, x, y, z, 4, k === 1);
     }
     addCard(mb, x, y + h * 0.89, z, 1, 0, 0, 0, 0.05, 0.95, x, y, z, 4, false);
+  };
+  const gateRand = mulberry32(612);
+  const entranceHedge = (along: number, right: number): void => {
+    const [x, z] = gatePoint(along, right);
+    const y = hf.surfaceAt(x, z);
+    const h = 2.07 + gateRand() * 0.1;
+    hedgeClump(x, y, z, 1.18, gateRand, true);
+    hedgeClump(x, y + h - 1.22, z, 1.22, gateRand, true);
+    collision.addCircle(x, z, 0.77, y + h);
+  };
+  for (let along = 0; along < 15; along += 0.48) entranceHedge(along, -3.05);
+  for (let right = -3.53; right > -8.2; right -= 0.48) entranceHedge(0, right);
+  // 袖壁の上に見える法面の樹木。
+  for (const [along, right, height] of [
+    [7.5, 9, 3.9],
+    [11, 8, 3.3],
+    [15, 10, 5.1],
+    [17, 6.8, 4.6],
+  ]) {
+    const [x, z] = gatePoint(along, right);
+    const y = hf.surfaceAt(x, z);
+    addDetailedTree(builderFor(near, x, z), { x, z, height, type: 0 }, y, gateRand);
+    collision.addCircle(x, z, 0.2, y + height * 0.4);
+  }
+  const hedgeRand = mulberry32(714);
+  for (let along = 0.6; along < approachLength - 0.5; along += 0.58) {
+    const [x, z] = approachPoint(along, 3.17);
+    const y = hf.surfaceAt(x, z);
+    const h = 1.12 + hedgeRand() * 0.12;
+    hedgeClump(x, y, z, h, hedgeRand);
     collision.addCircle(x, z, 0.77, y + h);
   }
   // 車止めの先、左側の針葉樹のまとまり。

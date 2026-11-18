@@ -82,7 +82,7 @@ export function paintGround(json: CampusJson, rect: PaintRect, maskSize: number)
 
   const asphalt = channel((ctx) => {
     for (const a of json.areas) {
-      if (a.k !== 'parking' && a.k !== 'parking_space') continue;
+      if (a.k !== 'parking' && a.k !== 'parking_space' && a.k !== 'asphalt') continue;
       traceArea(ctx, a);
       ctx.fill('evenodd');
     }

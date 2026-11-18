@@ -9,6 +9,7 @@ import type { TravelDestination } from './fastTravel';
 import { CollisionWorld } from './collision';
 import { campusNote } from './buildingStyles';
 import { Heightfield, signedDistanceToPolygon } from './heightfield';
+import { gatePoint } from './gateApproach';
 import { Player } from './player';
 import type { PlayerInput } from './player';
 import { buildProps, prepareTerrain } from './props';
@@ -46,38 +47,10 @@ const SHADOW_QUALITY: Record<Exclude<ShadowLevel, 'off'>, 'low' | 'medium' | 'hi
   high: 'high',
 };
 
-/** スタート地点: すずかけ門を入ったところ */
-const SPAWN = { x: -214, z: -146.5, yaw: -84 };
-
-/** すずかけ門のすぐ内側、道の上に、構内を向いて立つ位置を求める */
-function locateSpawn(json: CampusData['json']): void {
-  const gate = json.pois.find((p) => p.k === 'gate' && p.n === 'すずかけ門');
-  if (!gate) return;
-  let best = { dist: Infinity, x: gate.x, z: gate.z, dx: 1, dz: 0 };
-  for (const road of json.roads) {
-    if (road.br || road.tn || !['footway', 'pedestrian', 'path', 'service'].includes(road.k)) continue;
-    const p = road.p;
-    for (let i = 0; i + 3 < p.length; i += 2) {
-      const ex = p[i + 2] - p[i];
-      const ez = p[i + 3] - p[i + 1];
-      const l2 = ex * ex + ez * ez;
-      if (l2 === 0) continue;
-      const t = Math.max(0, Math.min(1, ((gate.x - p[i]) * ex + (gate.z - p[i + 1]) * ez) / l2));
-      const qx = p[i] + ex * t;
-      const qz = p[i + 1] + ez * t;
-      const dist = Math.hypot(gate.x - qx, gate.z - qz);
-      if (dist < best.dist) best = { dist, x: qx, z: qz, dx: ex / Math.sqrt(l2), dz: ez / Math.sqrt(l2) };
-    }
-  }
-  // 道の 2 方向のうち、キャンパスの中心へ向かうほうを前にする
-  if (best.dx * -best.x + best.dz * -best.z < 0) {
-    best.dx = -best.dx;
-    best.dz = -best.dz;
-  }
-  SPAWN.x = best.x + best.dx * 4;
-  SPAWN.z = best.z + best.dz * 4;
-  SPAWN.yaw = (Math.atan2(-best.dx, -best.dz) * 180) / Math.PI;
-}
+// 駅側の道路から、入口の車止め越しに構内を見渡す (公式案内の写真6)。
+const [spawnX, spawnZ] = gatePoint(-6.7, -0.45);
+const [lookX, lookZ] = gatePoint(12, 1.2);
+const SPAWN = { x: spawnX, z: spawnZ, yaw: (Math.atan2(spawnX - lookX, spawnZ - lookZ) * 180) / Math.PI };
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -223,7 +196,6 @@ export class Simulator {
 
     const b = json.meta.bounds;
     const player = new Player(hf, collision, decks, { minX: b.minX + 4, maxX: b.maxX - 4, minZ: b.minZ + 4, maxZ: b.maxZ - 4 });
-    locateSpawn(json);
     player.teleport(SPAWN.x, SPAWN.z, SPAWN.yaw);
 
     onProgress('シェーダを準備中', 0.92);
