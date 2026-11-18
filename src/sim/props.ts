@@ -78,7 +78,9 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   const lamps = new MeshBuilder({ uvs: true, colors: true });
   const signs = new SignAtlas();
   const signMesh = new MeshBuilder({ uvs: true });
-  const inBuilding = (x: number, z: number): boolean =>
+  const clearOfLamps = json.areas.filter((a) => a.noLamps);
+  const lampBlocked = (x: number, z: number): boolean =>
+    clearOfLamps.some((a) => pointInPolygon(x, z, a.r)) ||
     json.buildings.some((b) => Math.abs(b.r[0] - x) < 120 && Math.abs(b.r[1] - z) < 120 && pointInPolygon(x, z, b.r));
   const campusRoads = json.roads.filter((r) => r.c && !r.br && !r.tn);
   const glow = new MeshBuilder({ uvs: true, colors: true });
@@ -88,7 +90,7 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   addGate(mb, signMesh, signs, hf, collision);
   addGateApproach(mb, hf, collision);
   addBuildingSigns(mb, signMesh, signs, json, hf, campusRoads, collision);
-  const lampPositions = addLamps(mb, lamps, hf, campusRoads, inBuilding, collision);
+  const lampPositions = addLamps(mb, lamps, hf, campusRoads, lampBlocked, collision);
   addCars(mb, json, hf, collision);
   addSmallProps(mb, json, hf, collision);
   addBarriers(mb, json, hf, collision);
@@ -462,6 +464,7 @@ function addStairs(mb: MeshBuilder, st: StairSpec, collision: CollisionWorld): v
   mb.box(st.ax - (ux * st.landing) / 2, st.ay - 1.1, st.az - (uz * st.landing) / 2, st.landing, 1.1, st.width, rot);
   mb.box(st.bx + (ux * st.landing) / 2, st.by - 1.1, st.bz + (uz * st.landing) / 2, st.landing, 1.1, st.width, rot);
 
+  if (st.handrails === false) return;
   // 両側と中央の手すり
   const half = st.width / 2;
   for (const side of [-half, 0, half]) {
@@ -1036,7 +1039,7 @@ function addLamps(
   lamps: MeshBuilder,
   hf: Heightfield,
   roads: RoadData[],
-  inBuilding: (x: number, z: number) => boolean,
+  lampBlocked: (x: number, z: number) => boolean,
   collision: CollisionWorld,
 ): number[] {
   const placed: number[] = [];
@@ -1060,7 +1063,7 @@ function addLamps(
         const z = p[i + 1] + ez * t + (ex / len) * off * side;
         dist += spacing;
         side = -side;
-        if (inBuilding(x, z)) continue;
+        if (lampBlocked(x, z)) continue;
         let tooClose = false;
         for (let k = 0; k < placed.length; k += 2) {
           if (Math.hypot(placed[k] - x, placed[k + 1] - z) < 9) {

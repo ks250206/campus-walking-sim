@@ -50,6 +50,8 @@ export interface RoadData {
 }
 
 export interface AreaData {
+  /** 広場の通行部分など、道路に沿う自動配置の街灯を立てない範囲 */
+  noLamps?: boolean;
   k: string;
   r: number[];
   h?: number[][];
