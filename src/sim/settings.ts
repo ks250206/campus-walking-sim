@@ -6,7 +6,7 @@ export type ShadowLevel = 'off' | 'low' | 'medium' | 'high';
 export interface Settings {
   /** 描画解像度 (縦のピクセル数。横は画面の縦横比に合わせる) */
   resolution: ResolutionPreset;
-  /** マウス感度 (1 が標準) */
+  /** 視点操作の感度 (1 が標準) */
   mouseSensitivity: number;
   /** 上下の視点操作を反転 */
   invertY: boolean;
@@ -26,12 +26,15 @@ export interface Settings {
   showMinimap: boolean;
 }
 
+// 高 DPI のタッチ端末では描画負荷を抑えて起動する。
+const prefersTouch = window.matchMedia('(pointer: coarse)').matches;
+
 export const DEFAULT_SETTINGS: Settings = {
-  resolution: 'native',
+  resolution: prefersTouch ? '540' : 'native',
   mouseSensitivity: 1,
   invertY: false,
   fov: 68,
-  shadows: 'medium',
+  shadows: prefersTouch ? 'off' : 'medium',
   visibility: 0.6,
   timeOfDay: 10.5,
   headBob: true,
