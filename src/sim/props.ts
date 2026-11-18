@@ -4,7 +4,7 @@ import { CanvasSource, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { Decks } from './decks';
 import type { CampusExtras, StairSpec, TunnelSpec, WoodDeckSpec } from './extras';
-import { approachLength, approachPoint } from './gateApproach';
+import { approachLength, approachPoint, gateForward, gatePoint } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon, signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder, linearRgb } from './meshBuilder';
@@ -43,6 +43,28 @@ const meanOnRing = (hf: Heightfield, r: number[]): number => {
 
 /** 地形メッシュを作る前に、池の底やコートなどを平らにならす */
 export function prepareTerrain(json: CampusJson, hf: Heightfield): void {
+  // 門前の敷石の範囲。右手の擁壁の背後には元の法面を残す。
+  const apron = [
+    [-1.8, -2.55],
+    [-1.8, 6.55],
+    [1.5, 6.55],
+    [1.5, 2.55],
+    [15, 2.55],
+    [15, -2.55],
+  ].flatMap(([along, right]) => gatePoint(along, right));
+  hf.flatten(apron, hf.heightAt(...gatePoint(0, 0)), 2);
+  json.areas.push(
+    { k: 'plaza', r: apron },
+    {
+      k: 'asphalt',
+      r: [
+        [-8, -7],
+        [-1.7, -7],
+        [-1.7, 6.65],
+        [-5, 6.65],
+      ].flatMap(([along, right]) => gatePoint(along, right)),
+    },
+  );
   for (const a of json.areas) {
     if (a.k === 'water') hf.flatten(a.r, minOnRing(hf, a.r) - 0.7, 2.5);
     else if (a.k === 'tennis' || a.k === 'pitch') hf.flatten(a.r, meanOnRing(hf, a.r), 3);
@@ -63,7 +85,7 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
 
   addBridges(mb, decks, hf, collision);
   addTennisCourts(mb, json, hf, collision);
-  addGate(mb, signMesh, signs, json, hf, collision);
+  addGate(mb, signMesh, signs, hf, collision);
   addGateApproach(mb, hf, collision);
   addBuildingSigns(mb, signMesh, signs, json, hf, campusRoads, collision);
   const lampPositions = addLamps(mb, lamps, hf, campusRoads, inBuilding, collision);
@@ -794,59 +816,123 @@ function addGateApproach(mb: MeshBuilder, hf: Heightfield, collision: CollisionW
 }
 
 // ---------------------------------------------------------------- すずかけ門
-function addGate(
-  mb: MeshBuilder,
-  signMesh: MeshBuilder,
-  signs: SignAtlas,
-  json: CampusJson,
-  hf: Heightfield,
-  collision: CollisionWorld,
-): void {
-  const gate = json.pois.find((p) => p.k === 'gate' && p.n === 'すずかけ門');
-  if (!gate) return;
-  // 門を通る道の向きを調べ、その脇にコンクリートの袖壁と薄い庇を立てる
-  const road = nearestRoadPoint(
-    json.roads.filter((r) => !r.br && !r.tn && ['footway', 'pedestrian', 'path', 'service'].includes(r.k)),
-    gate.x,
-    gate.z,
-  );
-  const dx = road ? road.dx : 1;
-  const dz = road ? road.dz : 0;
-  const nx = -dz;
-  const nz = dx;
-  const half = (road?.road.w ?? 4) / 2 + 0.7;
-  const y = hf.heightAt(gate.x, gate.z);
-  const rot = Math.atan2(-dz, dx);
-  for (const side of [-1, 1]) {
-    const cx = gate.x + nx * side * (half + 1.6);
-    const cz = gate.z + nz * side * (half + 1.6);
-    setHex(mb, 0xb5b8b8);
-    mb.box(cx, y - 0.4, cz, 0.35, 3.3, 3.2, rot);
-    collision.addSegment(cx - nx * 1.6, cz - nz * 1.6, cx + nx * 1.6, cz + nz * 1.6, y + 2.9);
-  }
-  // 庇 (金属で縁取った薄い屋根)
-  setHex(mb, 0x8f9498);
-  mb.box(gate.x, y + 2.95, gate.z, 2.6, 0.14, (half + 3.2) * 2, rot, true, true);
-  // 銘板
-  const plate = signs.add(1024, 256, (ctx, w, h) => {
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, '#c9cdd0');
-    grad.addColorStop(1, '#a9aeb2');
-    ctx.fillStyle = grad;
+function addGate(mb: MeshBuilder, signMesh: MeshBuilder, signs: SignAtlas, hf: Heightfield, collision: CollisionWorld): void {
+  const rot = Math.atan2(-gateForward.z, gateForward.x);
+  const base = hf.heightAt(...gatePoint(0, 0));
+  const box = (along: number, right: number, y: number, length: number, width: number, height: number, color: number): void => {
+    const [x, z] = gatePoint(along, right);
+    setHex(mb, color);
+    mb.box(x, y, z, length, height, width, rot);
+  };
+
+  // 駅側に銘板を向けた壁が、通路に沿って奥へ折れる。白い笠木も壁の幅に合わせる。
+  const top = base + 3.18;
+  const panel = signs.add(128, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#dad9d2';
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#20242a';
-    ctx.textBaseline = 'middle';
-    ctx.font = '600 58px "Helvetica Neue", Arial, sans-serif';
-    ctx.fillText('Institute of SCIENCE TOKYO', 48, h * 0.34);
-    ctx.font = '700 76px "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif';
-    ctx.fillText('東京科学大学', 48, h * 0.7);
-    ctx.font = '500 34px "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif';
-    ctx.fillText('横浜キャンパス', 560, h * 0.74);
+    const rand = mulberry32(604);
+    for (let i = 0; i < 2400; i++) {
+      ctx.fillStyle = rand() < 0.5 ? 'rgba(70,66,59,.035)' : 'rgba(255,255,250,.08)';
+      ctx.fillRect(rand() * w, rand() * h, 1.5, 2 + rand() * 4);
+    }
+    ctx.strokeStyle = '#b1b0a9';
+    ctx.strokeRect(0, 0, w, h);
+    for (const x of [w / 4, (3 * w) / 4]) {
+      for (const y of [h / 4, (3 * h) / 4]) {
+        ctx.fillStyle = '#aaa9a3';
+        ctx.beginPath();
+        ctx.arc(x, y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
   });
-  for (const dir of [-1, 1]) {
-    const cx = gate.x + nx * (half + 1.6) - dx * dir * 0.19;
-    const cz = gate.z + nz * (half + 1.6) - dz * dir * 0.19;
-    addSignQuad(signMesh, cx, y + 1.7, cz, 2.4, 0.6, -dx * dir, -dz * dir, plate);
+  const wallRun = (along: number, right: number, length: number, width: number, front: boolean): void => {
+    box(along, right, base - 0.4, length, width, top - base + 0.4, 0xc6c5bf);
+    box(along, right, top, length + 0.12, width + 0.12, 0.15, 0xdcdad2);
+    const span = front ? width : length;
+    const cols = Math.ceil(span / 1.4);
+    const normal = front ? [-gateForward.x, -gateForward.z] : [gateForward.z, -gateForward.x];
+    for (let i = 0; i < cols; i++) {
+      const offset = ((i + 0.5) / cols - 0.5) * span;
+      const [x, z] = front ? gatePoint(along - length / 2 - 0.004, right + offset) : gatePoint(along + offset, right - width / 2 - 0.004);
+      for (let j = 0; j < 3; j++) {
+        const h = (top - base) / 3;
+        addSignQuad(signMesh, x, base + (j + 0.5) * h, z, span / cols, h, normal[0], normal[1], panel);
+      }
+    }
+    const ring = [
+      [-1, -1],
+      [-1, 1],
+      [1, 1],
+      [1, -1],
+    ].flatMap(([a, r]) => gatePoint(along + (a * length) / 2, right + (r * width) / 2));
+    collision.addRing(ring, top + 0.15);
+  };
+  wallRun(1.7, 4.42, 0.42, 4.04, true);
+  wallRun(8.2, 2.61, 12.6, 0.42, false);
+
+  const plate = signs.add(512, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#adada6';
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#363732';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '600 30px "Noto Sans JP", sans-serif';
+    ctx.fillText('東京科学大学　横浜キャンパス', w / 2, h / 2);
+  });
+  const [px, pz] = gatePoint(1.48, 4.75);
+  addSignQuad(signMesh, px, base + 1.88, pz, 2.2, 0.26, -gateForward.x, -gateForward.z, plate);
+
+  // 通路側の壁面に掲示された案内用紙。
+  for (const along of [4.8, 10.7]) {
+    box(along, 2.39, base + 1.05, 0.46, 0.022, 0.69, 0x898c88);
+    box(along, 2.376, base + 1.07, 0.42, 0.01, 0.65, 0xd9dbd5);
+  }
+
+  // 大判の敷石。誘導ブロックは車止めの切れ目を通し、駅側の縁に警告ブロックを置く。
+  for (let i = 0; i < 28; i++) {
+    const along = -1.5 + i * 0.6;
+    const last = along < 1.5 ? 10 : 3;
+    for (let j = -4; j <= last; j++) {
+      const right = (j + 0.5) * 0.6;
+      const y = hf.heightAt(...gatePoint(along, right));
+      const shade = [0xa7a6a1, 0xb4b1a9, 0xadaba4][hash2(i, j) % 3];
+      box(along, right, y + 0.014, 0.591, 0.591, 0.015, shade);
+    }
+    box(along, -0.68, base + 0.034, 0.59, 0.3, 0.014, 0xd8b359);
+    for (const r of [-0.77, -0.71, -0.65, -0.59]) box(along, r, base + 0.049, 0.55, 0.023, 0.007, 0xe5c574);
+  }
+  box(-1.51, -0.68, base + 0.056, 0.54, 1.76, 0.012, 0xddba66);
+  for (const right of [-1.82, 0.68, 2.95]) {
+    const [x, z] = gatePoint(-1.02, right);
+    setHex(mb, 0x969690);
+    mb.cylinder(x, base + 0.03, z, 0.19, 0.19, 0.39, 12);
+    mb.cylinder(x, base + 0.42, z, 0.19, 0.15, 0.095, 12);
+    mb.cylinder(x, base + 0.515, z, 0.15, 0.065, 0.067, 12, true);
+    collision.addCircle(x, z, 0.19, base + 0.59);
+  }
+  // 壁側の道路際に並ぶ、反射帯つきのオレンジ色のポール。
+  for (let i = 0; i < 4; i++) {
+    const [x, z] = gatePoint(-1.95 - i * 0.2, 3.65 + i * 0.78);
+    const y = hf.heightAt(x, z);
+    setHex(mb, 0xd66136);
+    mb.cylinder(x, y, z, 0.11, 0.07, 0.065, 8, true);
+    mb.cylinder(x, y + 0.05, z, 0.055, 0.052, 0.67, 8, true);
+    setHex(mb, 0xe4ddd0);
+    for (const h of [0.43, 0.59]) mb.cylinder(x, y + h, z, 0.056, 0.056, 0.048, 8);
+    collision.addCircle(x, z, 0.07, y + 0.72);
+  }
+  // 歩道の奥に見える3枚の自立式案内板は、互い違いにして歩行幅を取る。
+  for (const [along, right] of [
+    [7.8, -1.58],
+    [10, 0.05],
+    [7.8, 1.65],
+  ]) {
+    box(along, right, base + 0.03, 0.42, 0.56, 0.16, 0x42484a);
+    box(along, right, base + 0.19, 0.1, 0.49, 0.85, 0x74797b);
+    box(along - 0.054, right, base + 0.31, 0.012, 0.4, 0.65, 0xdedfd8);
+    const [x, z] = gatePoint(along, right);
+    collision.addCircle(x, z, 0.29, base + 1.04);
   }
 }
 
