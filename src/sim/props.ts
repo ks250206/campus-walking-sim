@@ -1,8 +1,9 @@
-import { Container3D, Material3D, Mesh3D } from '@pixi/3d';
+import { Container3D, Material3D, Mesh3D, PointLight } from '@pixi/3d';
 import earcut from 'earcut';
 import { CanvasSource, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
 import type { Decks } from './decks';
+import type { CampusExtras, StairSpec, TunnelSpec } from './extras';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon, signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder, linearRgb } from './meshBuilder';
@@ -47,7 +48,7 @@ export function prepareTerrain(json: CampusJson, hf: Heightfield): void {
   }
 }
 
-export function buildProps(data: CampusData, hf: Heightfield, collision: CollisionWorld, decks: Decks): PropsResult {
+export function buildProps(data: CampusData, hf: Heightfield, collision: CollisionWorld, decks: Decks, extras: CampusExtras): PropsResult {
   const json = data.json;
   const node = new Container3D({ label: 'props' });
   const mb = new MeshBuilder({ uvs: true, colors: true });
@@ -57,6 +58,7 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   const inBuilding = (x: number, z: number): boolean =>
     json.buildings.some((b) => Math.abs(b.r[0] - x) < 120 && Math.abs(b.r[1] - z) < 120 && pointInPolygon(x, z, b.r));
   const campusRoads = json.roads.filter((r) => r.c && !r.br && !r.tn);
+  const glow = new MeshBuilder({ uvs: true, colors: true });
 
   addBridges(mb, decks, hf, collision);
   addTennisCourts(mb, json, hf, collision);
@@ -68,6 +70,8 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   addBarriers(mb, json, hf, collision);
   addCrosswalks(mb, json, hf);
   addPylons(mb, json, hf);
+  for (const t of extras.tunnels) addTunnel(mb, glow, node, t, hf, collision);
+  for (const st of extras.stairs) addStairs(mb, st, collision);
 
   const propGeometry = mb.build();
   if (propGeometry) {
@@ -83,6 +87,19 @@ export function buildProps(data: CampusData, hf: Heightfield, collision: Collisi
   const lampMaterial = new Material3D({ baseColor: 0xf4f1e6, roughness: 0.4, metallic: 0, emissive: { color: 0xffe2b0, strength: 0 } });
   const lampGeometry = lamps.build();
   if (lampGeometry) node.addChild(new Mesh3D({ label: 'lamps', geometry: lampGeometry, material: lampMaterial, castShadow: false }));
+
+  // トンネルの照明は昼も夜もついている
+  const glowGeometry = glow.build();
+  if (glowGeometry) {
+    node.addChild(
+      new Mesh3D({
+        label: 'tunnel-lights',
+        geometry: glowGeometry,
+        material: new Material3D({ baseColor: 0xfff3dc, roughness: 0.5, metallic: 0, emissive: { color: 0xffd9a0, strength: 5 } }),
+        castShadow: false,
+      }),
+    );
+  }
 
   const signGeometry = signMesh.build();
   if (signGeometry) {
@@ -271,6 +288,157 @@ function addRail(mb: MeshBuilder, a: number[], b: number[], height: number, colo
     mb.quadPoints(up(p0), up(p1), p1, p0);
     mb.quadPoints(up(q1), up(q0), q0, q1);
     mb.quadPoints(p0, p1, q1, q0);
+  }
+}
+
+// ---------------------------------------------------------------- トンネル
+/** 表裏どちらからも見える四角形 */
+function doubleQuad(mb: MeshBuilder, a: number[], b: number[], c: number[], d: number[]): void {
+  mb.quadPoints(a, b, c, d);
+  mb.quadPoints(d, c, b, a);
+}
+
+/** 箱形の歩行者トンネル: 床・側壁・天井と、両端の坑門 (土留めの壁) */
+function addTunnel(mb: MeshBuilder, glow: MeshBuilder, node: Container3D, t: TunnelSpec, hf: Heightfield, collision: CollisionWorld): void {
+  const len = Math.hypot(t.bx - t.ax, t.bz - t.az);
+  const ux = (t.bx - t.ax) / len;
+  const uz = (t.bz - t.az) / len;
+  const nx = -uz;
+  const nz = ux;
+  const rot = Math.atan2(-uz, ux);
+  const cx = (t.ax + t.bx) / 2;
+  const cz = (t.az + t.bz) / 2;
+  const floorLow = Math.min(t.ay, t.by);
+  const floorHigh = Math.max(t.ay, t.by);
+  const wall = 0.3;
+  const ceilY = floorHigh + t.height;
+  const at = (along: number, side: number, y: number): number[] => [t.ax + ux * along + nx * side, y, t.az + uz * along + nz * side];
+  const floorAt = (along: number): number => t.ay + ((t.by - t.ay) * Math.min(len, Math.max(0, along))) / len;
+
+  // 床 (坑口の前後に少し張り出す)
+  setHex(mb, 0x8f8c86);
+  const apron = 2.4;
+  const hw = t.halfWidth;
+  doubleQuad(
+    mb,
+    at(-apron, hw, t.ay + 0.02),
+    at(len + apron, hw, t.by + 0.02),
+    at(len + apron, -hw, t.by + 0.02),
+    at(-apron, -hw, t.ay + 0.02),
+  );
+
+  // 側壁と天井
+  setHex(mb, 0xb7b1a4);
+  for (const side of [-1, 1]) {
+    const off = side * (hw + wall / 2);
+    mb.box(cx + nx * off, floorLow - 0.7, cz + nz * off, len, ceilY - floorLow + 0.7, wall, rot);
+  }
+  setHex(mb, 0xc2bcae);
+  mb.box(cx, ceilY, cz, len + 0.8, 0.35, (hw + wall) * 2 + 0.2, rot, true, true);
+
+  // 天井の照明
+  const lamps = Math.max(2, Math.round(len / 4.5));
+  for (let i = 0; i < lamps; i++) {
+    const along = ((i + 0.5) / lamps) * len;
+    glow.color(1, 1, 1, 1);
+    glow.box(t.ax + ux * along, ceilY - 0.07, t.az + uz * along, 0.9, 0.06, 0.22, rot, true, true);
+  }
+  for (const f of [0.25, 0.75]) {
+    const light = new PointLight({ color: 0xffd6a0, intensity: 10, range: 10, radius: 0.5 });
+    light.position.set(t.ax + ux * len * f, floorAt(len * f) + t.height - 0.5, t.az + uz * len * f);
+    node.addChild(light);
+  }
+
+  // 坑門: 山を押さえる土留めの壁に、トンネルの口が開いている
+  const span = 7.5;
+  const opening = hw + wall;
+  const cuts = [-span, -6, -4.5, -3, -opening, opening, 3, 4.5, 6, span];
+  for (const end of [0, 1]) {
+    const along = end === 0 ? 0 : len;
+    const inward = end === 0 ? 0.8 : -0.8;
+    const floor = end === 0 ? t.ay : t.by;
+    const topAt = (side: number): number => {
+      const ground = hf.uncarvedAt(t.ax + ux * (along + inward) + nx * side, t.az + uz * (along + inward) + nz * side);
+      return Math.max(ground + 0.45, Math.abs(side) <= 3.1 ? ceilY + 0.8 : -Infinity);
+    };
+    setHex(mb, 0x99978f);
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const s0 = cuts[i];
+      const s1 = cuts[i + 1];
+      const isOpening = s0 === -opening;
+      const bottom = isOpening ? floor + t.height : floor - 1.6;
+      doubleQuad(mb, at(along, s0, bottom), at(along, s1, bottom), at(along, s1, topAt(s1)), at(along, s0, topAt(s0)));
+    }
+    // 壁は通れない (トンネルの口だけ開いている)
+    for (const side of [-1, 1]) {
+      const p0 = at(along, side * opening, 0);
+      const p1 = at(along, side * span, 0);
+      collision.addSegment(p0[0], p0[2], p1[0], p1[2], Math.max(topAt(side * opening), topAt(side * span)), floor - 1.6);
+    }
+    // 坑門の上には転落防止の柵
+    const back = end === 0 ? 2.8 : len - 2.8;
+    const posts = [-span, -2.5, 2.5, span];
+    for (let i = 0; i + 1 < posts.length; i++) {
+      const p0 = at(back, posts[i], 0);
+      const p1 = at(back, posts[i + 1], 0);
+      p0[1] = hf.uncarvedAt(p0[0], p0[2]);
+      p1[1] = hf.uncarvedAt(p1[0], p1[2]);
+      addRail(mb, p0, p1, 1.1, 0x4a5055);
+      collision.addSegment(p0[0], p0[2], p1[0], p1[2], Math.max(p0[1], p1[1]) + 1.1, Math.min(p0[1], p1[1]) - 0.6);
+    }
+  }
+
+  // 側壁の当たり判定 (山の上を歩いているときは無視される)
+  for (const side of [-1, 1]) {
+    const p0 = at(-0.3, side * hw, 0);
+    const p1 = at(len + 0.3, side * hw, 0);
+    collision.addSegment(p0[0], p0[2], p1[0], p1[2], ceilY + 0.3, floorLow - 1);
+  }
+}
+
+// ---------------------------------------------------------------- 階段
+function addStairs(mb: MeshBuilder, st: StairSpec, collision: CollisionWorld): void {
+  const len = Math.hypot(st.bx - st.ax, st.bz - st.az);
+  const ux = (st.bx - st.ax) / len;
+  const uz = (st.bz - st.az) / len;
+  const nx = -uz;
+  const nz = ux;
+  const rot = Math.atan2(-uz, ux);
+  const run = len / st.steps;
+  const rise = (st.ay - st.by) / st.steps;
+  for (let i = 0; i < st.steps; i++) {
+    const d = (i + 0.5) * run;
+    const top = st.ay - (i + 1) * rise;
+    setHex(mb, i % 2 ? 0xaeaba3 : 0xa6a39b);
+    mb.box(st.ax + ux * d, top - 1.1, st.az + uz * d, run + 0.02, 1.1, st.width, rot);
+  }
+  // 上下の踊り場: 地面との継ぎ目を隠すコンクリートの床
+  setHex(mb, 0xa9a69e);
+  mb.box(st.ax - (ux * st.landing) / 2, st.ay - 1.1, st.az - (uz * st.landing) / 2, st.landing, 1.1, st.width, rot);
+  mb.box(st.bx + (ux * st.landing) / 2, st.by - 1.1, st.bz + (uz * st.landing) / 2, st.landing, 1.1, st.width, rot);
+
+  // 両側と中央の手すり
+  const half = st.width / 2;
+  for (const side of [-half, 0, half]) {
+    const a = [st.ax + nx * side, st.ay, st.az + nz * side];
+    const b = [st.bx + nx * side, st.by, st.bz + nz * side];
+    addRail(mb, a, b, 0.95, 0xcfd3d6);
+    if (side === 0) continue;
+    // 斜めの手すりを 4 つに分けて、それぞれの高さの範囲で当たりを付ける
+    for (let k = 0; k < 4; k++) {
+      const t0 = k / 4;
+      const t1 = (k + 1) / 4;
+      const y0 = st.ay + (st.by - st.ay) * t0;
+      const y1 = st.ay + (st.by - st.ay) * t1;
+      collision.addSegment(
+        a[0] + (b[0] - a[0]) * t0,
+        a[2] + (b[2] - a[2]) * t0,
+        a[0] + (b[0] - a[0]) * t1,
+        a[2] + (b[2] - a[2]) * t1,
+        y0 + 1,
+        y1 - 1.4,
+      );
+    }
   }
 }
 

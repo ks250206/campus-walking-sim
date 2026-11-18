@@ -161,6 +161,40 @@ export function buildTerrain(data: CampusData, hf: Heightfield, maskSize: number
     }
   }
 
+  // トンネルの上: 掘り込む前の地表を「ふた」としてかぶせる (影を落として、中を暗くする)
+  if (hf.surface && hf.capCells) {
+    const mb = new MeshBuilder({ uvs: true });
+    const cellsX = hf.nx - 1;
+    for (let j = 0; j < hf.nz - 1; j++) {
+      for (let i = 0; i < cellsX; i++) {
+        if (!hf.capCells[j * cellsX + i]) continue;
+        const corner = (di: number, dj: number): number => {
+          const x = hf.x0 + (i + di) * FINE_STEP;
+          const z = hf.z0 + (j + dj) * FINE_STEP;
+          hf.capNormalAt(x, z, normal);
+          return mb.vertex(
+            x,
+            hf.surface![(j + dj) * hf.nx + i + di],
+            z,
+            normal[0],
+            normal[1],
+            normal[2],
+            (x - paintRect.x0) / size,
+            (z - paintRect.z0) / size,
+          );
+        };
+        const a = corner(0, 0);
+        const b = corner(0, 1);
+        const c = corner(1, 0);
+        const d = corner(1, 1);
+        mb.tri(a, b, c);
+        mb.tri(c, b, d);
+      }
+    }
+    const geometry = mb.build();
+    if (geometry) node.addChild(new Mesh3D({ label: 'tunnel-cap', geometry, material, castShadow: true, receiveShadow: true }));
+  }
+
   node.addChild(buildFarTerrain(data, hf));
   return { node, paintRect, macro: paint.macro };
 }

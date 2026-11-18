@@ -2,6 +2,7 @@ import { Container3D, Material3D, Mesh3D } from '@pixi/3d';
 import type { ShaderBit } from '@pixi/3d';
 import { CanvasSource, Rectangle, Texture } from 'pixi.js';
 import type { CollisionWorld } from './collision';
+import type { CampusExtras } from './extras';
 import type { Heightfield } from './heightfield';
 import { signedDistanceToPolygon } from './heightfield';
 import { MeshBuilder } from './meshBuilder';
@@ -198,7 +199,7 @@ interface TreeSpec {
 
 const CHUNK = 72;
 
-export function buildVegetation(data: CampusData, hf: Heightfield, collision: CollisionWorld): Container3D {
+export function buildVegetation(data: CampusData, hf: Heightfield, collision: CollisionWorld, extras: CampusExtras): Container3D {
   const node = new Container3D({ label: 'vegetation' });
   const atlas = new Texture({
     source: new CanvasSource({
@@ -229,6 +230,20 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
     return d;
   };
 
+  // あとから足した通路 (坂・階段など) の上には木を生やさない
+  const inClearing = (x: number, z: number): boolean => {
+    for (const c of extras.clearings) {
+      for (let i = 0; i + 3 < c.p.length; i += 2) {
+        const dx = c.p[i + 2] - c.p[i];
+        const dz = c.p[i + 3] - c.p[i + 1];
+        const l2 = dx * dx + dz * dz || 1;
+        const t = Math.max(0, Math.min(1, ((x - c.p[i]) * dx + (z - c.p[i + 1]) * dz) / l2));
+        if (Math.hypot(x - (c.p[i] + dx * t), z - (c.p[i + 1] + dz * t)) < c.radius) return true;
+      }
+    }
+    return false;
+  };
+
   const near = new Map<string, MeshBuilder>();
   const far = new Map<string, MeshBuilder>();
   const builderFor = (map: Map<string, MeshBuilder>, x: number, z: number): MeshBuilder => {
@@ -242,8 +257,8 @@ export function buildVegetation(data: CampusData, hf: Heightfield, collision: Co
   const rand = mulberry32(4259);
   for (let i = 0; i < trees.length; i += 4) {
     const spec: TreeSpec = { x: trees[i], z: trees[i + 1], height: trees[i + 2], type: trees[i + 3] };
-    if (!hf.contains(spec.x, spec.z)) continue;
-    const y = hf.heightAt(spec.x, spec.z) - 0.15;
+    if (!hf.contains(spec.x, spec.z) || inClearing(spec.x, spec.z)) continue;
+    const y = hf.surfaceAt(spec.x, spec.z) - 0.15;
     const detailed = campusDistance(spec.x, spec.z) < 55;
     if (detailed) {
       addDetailedTree(builderFor(near, spec.x, spec.z), spec, y, rand);

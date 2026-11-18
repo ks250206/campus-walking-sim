@@ -1,3 +1,4 @@
+import type { CampusExtras } from './extras';
 import type { Heightfield } from './heightfield';
 import type { WalkSurface } from './player';
 import type { CampusJson, RoadData } from './types';
@@ -13,11 +14,22 @@ export interface DeckSpan {
 
 const key = (x: number, z: number): string => `${x.toFixed(1)},${z.toFixed(1)}`;
 
-/** 橋など、地形より上にある歩ける床。両端の地面の高さを直線でつないだ面とする */
+/**
+ * 地形とは別に歩ける面: 橋 (両端の地面を直線でつないだ床)、トンネルの床、階段、
+ * そしてトンネルの上にかぶせた地表。
+ */
 export class Decks implements WalkSurface {
+  /** 橋 (描画もする) */
   readonly spans: DeckSpan[] = [];
+  /** トンネルの床や階段など、当たり判定だけの面 */
+  private readonly strips: DeckSpan[] = [];
+  private readonly hf: Heightfield;
 
-  constructor(json: CampusJson, hf: Heightfield) {
+  constructor(json: CampusJson, hf: Heightfield, extras: CampusExtras) {
+    this.hf = hf;
+    for (const s of extras.strips) {
+      this.strips.push({ kind: 'strip', width: s.halfWidth * 2, pts: [s.ax, s.az, s.bx, s.bz], ys: [s.ay, s.by] });
+    }
     const bridges = json.roads.filter((r) => r.br && !r.tn && r.k !== 'steps' && r.k !== 'rail');
     // 端点を共有する同種の橋をつないで 1 本にする
     const used = new Set<RoadData>();
@@ -65,21 +77,26 @@ export class Decks implements WalkSurface {
     }
   }
 
-  deckAt(x: number, z: number): number {
+  /** (x, z) にある歩ける面のうち、maxY 以下でいちばん高いもの。無ければ -Infinity */
+  deckAt(x: number, z: number, maxY: number): number {
     let best = -Infinity;
-    for (const span of this.spans) {
-      const p = span.pts;
-      for (let i = 0; i + 3 < p.length; i += 2) {
-        const dx = p[i + 2] - p[i];
-        const dz = p[i + 3] - p[i + 1];
-        const l2 = dx * dx + dz * dz;
-        if (l2 === 0) continue;
-        const t = ((x - p[i]) * dx + (z - p[i + 1]) * dz) / l2;
-        if (t < 0 || t > 1) continue;
-        const d = Math.hypot(x - (p[i] + dx * t), z - (p[i + 1] + dz * t));
-        if (d > span.width / 2) continue;
-        const y = span.ys[i / 2] + (span.ys[i / 2 + 1] - span.ys[i / 2]) * t;
-        if (y > best) best = y;
+    const cap = this.hf.capHeightAt(x, z);
+    if (cap <= maxY) best = cap;
+    for (const list of [this.spans, this.strips]) {
+      for (const span of list) {
+        const p = span.pts;
+        for (let i = 0; i + 3 < p.length; i += 2) {
+          const dx = p[i + 2] - p[i];
+          const dz = p[i + 3] - p[i + 1];
+          const l2 = dx * dx + dz * dz;
+          if (l2 === 0) continue;
+          const t = ((x - p[i]) * dx + (z - p[i + 1]) * dz) / l2;
+          if (t < 0 || t > 1) continue;
+          const d = Math.hypot(x - (p[i] + dx * t), z - (p[i + 1] + dz * t));
+          if (d > span.width / 2) continue;
+          const y = span.ys[i / 2] + (span.ys[i / 2 + 1] - span.ys[i / 2]) * t;
+          if (y > best && y <= maxY) best = y;
+        }
       }
     }
     return best;

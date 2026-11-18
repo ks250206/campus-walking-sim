@@ -18,6 +18,7 @@ import { buildTerrain } from './terrain';
 import type { CampusData } from './types';
 import { buildVegetation } from './vegetation';
 import { Decks } from './decks';
+import { applyCampusExtras } from './extras';
 import { renderMapImage } from './mapImage';
 import type { MapImage } from './mapImage';
 
@@ -193,7 +194,9 @@ export class Simulator {
     const hf = new Heightfield(data.terrain, json.terrain);
     const collision = new CollisionWorld();
     prepareTerrain(json, hf);
-    const decks = new Decks(json, hf);
+    // 地図データに無い通路 (ブリッジ下の通り抜け・トンネル・階段) を補う
+    const extras = applyCampusExtras(json, hf);
+    const decks = new Decks(json, hf, extras);
 
     const sky = new Sky(view, world, settings.shadows !== 'off');
 
@@ -202,16 +205,16 @@ export class Simulator {
 
     onProgress('建物を生成中', 0.4);
     await nextFrame();
-    const buildings = buildBuildings(data, hf, collision);
+    const buildings = buildBuildings(data, hf, collision, extras.passages);
     world.addChild(buildings.node);
 
     onProgress('樹木を配置中', 0.6);
     await nextFrame();
-    world.addChild(buildVegetation(data, hf, collision));
+    world.addChild(buildVegetation(data, hf, collision, extras));
 
     onProgress('道路・設備を配置中', 0.8);
     await nextFrame();
-    const props = buildProps(data, hf, collision, decks);
+    const props = buildProps(data, hf, collision, decks, extras);
     world.addChild(props.node);
 
     const b = json.meta.bounds;

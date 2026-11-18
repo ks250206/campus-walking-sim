@@ -76,8 +76,10 @@ export function renderMapImage(json: CampusJson, scale = 2): MapImage {
   // 道路 (縁取り → 中身 の順)
   for (const pass of [0, 1]) {
     for (const r of json.roads) {
-      if (r.tn) continue;
+      if (r.tn && !r.c) continue;
       const walk = r.k in ROAD_COLOR;
+      // 構内のトンネルは破線で示す
+      ctx.setLineDash(r.tn ? [2, 2] : []);
       ctx.strokeStyle = pass === 0 ? (walk ? '#b7ae9c' : '#8d9093') : (ROAD_COLOR[r.k] ?? '#fdfdfb');
       ctx.lineWidth = Math.max(1.2, r.w) + (pass === 0 ? 1.2 : 0);
       ctx.beginPath();
@@ -86,6 +88,7 @@ export function renderMapImage(json: CampusJson, scale = 2): MapImage {
       ctx.stroke();
     }
   }
+  ctx.setLineDash([]);
   // 建物
   for (const bd of json.buildings) {
     ctx.fillStyle = bd.c ? '#b98d79' : '#b9b5ad';

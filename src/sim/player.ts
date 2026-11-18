@@ -3,8 +3,8 @@ import type { CollisionWorld } from './collision';
 import type { Heightfield } from './heightfield';
 
 export interface WalkSurface {
-  /** その場所にある床 (橋など) の高さ。無ければ -Infinity */
-  deckAt(x: number, z: number): number;
+  /** その場所にある床 (橋・トンネル・階段など) のうち、maxY 以下でいちばん高いもの。無ければ -Infinity */
+  deckAt(x: number, z: number, maxY: number): number;
 }
 
 export interface PlayerInput {
@@ -87,9 +87,8 @@ export class Player {
   /** その位置で立てる床の高さ。fromY より STEP_HEIGHT 以上高い床には乗れない */
   private groundAt(x: number, z: number, fromY: number): number {
     const ground = this.hf.heightAt(x, z);
-    const deck = this.surface.deckAt(x, z);
-    if (deck > ground && deck <= fromY + STEP_HEIGHT) return deck;
-    return ground;
+    const deck = this.surface.deckAt(x, z, fromY + STEP_HEIGHT);
+    return deck > ground ? deck : ground;
   }
 
   update(dt: number, input: PlayerInput, headBob: boolean): void {

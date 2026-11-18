@@ -1,7 +1,10 @@
 import { Container3D, Material3D, Mesh3D } from '@pixi/3d';
 import earcut from 'earcut';
+import polygonClipping from 'polygon-clipping';
+import type { Pair, Polygon } from 'polygon-clipping';
 import { MINT_ROOF_COLOR, buildingStyleFor, hasMintRoof } from './buildingStyles';
 import type { CollisionWorld } from './collision';
+import type { PassageSpec } from './extras';
 import { FACADE_STYLES, createFacadeMaterial } from './facade';
 import type { FacadeStyle, FacadeStyleId } from './facade';
 import type { Heightfield } from './heightfield';
@@ -93,7 +96,12 @@ function orientedBox(ring: number[], area: number): Obb {
   return { cx, cz, ax, az, halfLen, halfWid, coverage: area / (4 * halfLen * halfWid || 1) };
 }
 
-export function buildBuildings(data: CampusData, hf: Heightfield, collision: CollisionWorld): BuildingsResult {
+export function buildBuildings(
+  data: CampusData,
+  hf: Heightfield,
+  collision: CollisionWorld,
+  passages: PassageSpec[] = [],
+): BuildingsResult {
   const node = new Container3D({ label: 'buildings' });
   const walls = new Map<FacadeStyleId, MeshBuilder>();
   const wallBuilder = (id: FacadeStyleId): MeshBuilder => {
@@ -115,9 +123,6 @@ export function buildBuildings(data: CampusData, hf: Heightfield, collision: Col
     const style: FacadeStyle = FACADE_STYLES[styleId];
     const mb = wallBuilder(styleId);
 
-    collision.addRing(ring);
-    for (const h of holes) collision.addRing(h);
-
     // 屋根の形: 小さな住宅は勾配屋根、それ以外は陸屋根
     const obb = orientedBox(ring, area);
     const pitched = styleId === 'house' && ring.length / 2 <= 8 && obb.coverage > 0.8 && area > 28 && area < 260 && holes.length === 0;
@@ -128,43 +133,71 @@ export function buildBuildings(data: CampusData, hf: Heightfield, collision: Col
     const wallBase = style.walls[Math.floor(rand() * style.walls.length)];
     const tone = 0.93 + rand() * 0.12;
     const [wr, wg, wbl] = linearRgb(wallBase);
-    mb.color(wr * tone, wg * tone, wbl * tone, 1);
+    const wallColor = [wr * tone, wg * tone, wbl * tone];
 
-    for (const r of [ring, ...holes]) {
-      const n = r.length / 2;
-      for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        const x0 = r[i * 2];
-        const z0 = r[i * 2 + 1];
-        const x1 = r[j * 2];
-        const z1 = r[j * 2 + 1];
-        const len = Math.hypot(x1 - x0, z1 - z0);
-        if (len < 0.05) continue;
-        const tx = (x1 - x0) / len;
-        const tz = (z1 - z0) / len;
-        const nx = -tz;
-        const nz = tx;
-        // 妻側 (建物の短辺方向に走る壁) は、様式によって窓なし・ブレース付きにする
-        const across = Math.abs(tx * obb.ax + tz * obb.az) < 0.5;
-        const isEnd = style.ends !== 'same' && across && len > 5 && r === ring;
-        const plain = len < 1.1 || isEnd;
-        const flag = isEnd && style.ends === 'brace' && len > 12 ? 2 : plain ? 1 : 0;
-        const bays = plain ? 1 : Math.max(1, Math.round(len / style.bayW));
-        mb.setData(len / bays, seed, wallTop - b.b, flag);
-        const v0 = bottom - b.b;
-        const v1 = wallTop - b.b;
-        const a = mb.vertex(x0, bottom, z0, nx, 0, nz, 0, v0);
-        const bb = mb.vertex(x1, bottom, z1, nx, 0, nz, bays, v0);
-        const c = mb.vertex(x1, wallTop, z1, nx, 0, nz, bays, v1);
-        const d = mb.vertex(x0, wallTop, z0, nx, 0, nz, 0, v1);
-        mb.quad(a, bb, c, d);
+    // 下を通り抜けられる建物は、通路の部分だけ上階を残して切り欠く
+    const passage = b.c && b.n ? passages.find((p) => p.building.test(b.n ?? '')) : undefined;
+    const parts = passage ? splitByPassage(ring, holes, passage.zone) : null;
+    const split = parts && parts.over.length > 0 ? parts : null;
+    const grounded: Part[] = split ? split.ground : [{ ring, holes }];
+    const isCut = (x: number, z: number): boolean =>
+      Boolean(split && passage && Math.abs(signedDistanceToPolygon(x, z, passage.zone)) < 0.02);
+
+    /** 1 つの部分 (外周 + 穴) の外壁を、高さ from 〜 wallTop に立てる */
+    const addWalls = (part: Part, from: number, lifted: boolean): void => {
+      mb.color(wallColor[0], wallColor[1], wallColor[2], 1);
+      for (const r of [part.ring, ...part.holes]) {
+        const n = r.length / 2;
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n;
+          const x0 = r[i * 2];
+          const z0 = r[i * 2 + 1];
+          const x1 = r[j * 2];
+          const z1 = r[j * 2 + 1];
+          const len = Math.hypot(x1 - x0, z1 - z0);
+          if (len < 0.05) continue;
+          // 切り口の面: 上階どうしがつながる所なので、持ち上げた側には壁を作らない
+          const cut = isCut((x0 + x1) / 2, (z0 + z1) / 2);
+          if (cut && lifted) continue;
+          const tx = (x1 - x0) / len;
+          const tz = (z1 - z0) / len;
+          const nx = -tz;
+          const nz = tx;
+          // 妻側 (建物の短辺方向に走る壁) は、様式によって窓なし・ブレース付きにする
+          const across = Math.abs(tx * obb.ax + tz * obb.az) < 0.5;
+          const isEnd = style.ends !== 'same' && across && len > 5 && r === part.ring && !cut;
+          const plain = len < 1.1 || isEnd || cut;
+          const flag = isEnd && style.ends === 'brace' && len > 12 ? 2 : plain ? 1 : 0;
+          const bays = plain ? 1 : Math.max(1, Math.round(len / style.bayW));
+          mb.setData(len / bays, seed, wallTop - b.b, flag);
+          const v0 = from - b.b;
+          const v1 = wallTop - b.b;
+          const a = mb.vertex(x0, from, z0, nx, 0, nz, 0, v0);
+          const bb = mb.vertex(x1, from, z1, nx, 0, nz, bays, v0);
+          const c = mb.vertex(x1, wallTop, z1, nx, 0, nz, bays, v1);
+          const d = mb.vertex(x0, wallTop, z0, nx, 0, nz, 0, v1);
+          mb.quad(a, bb, c, d);
+        }
+      }
+    };
+
+    for (const part of grounded) {
+      collision.addRing(part.ring);
+      for (const h of part.holes) collision.addRing(h);
+      addWalls(part, bottom, false);
+      if (pitched) {
+        addPitchedRoof(roofs, mb, obb, wallTop, rise, rand, seed, b.b);
+      } else {
+        addFlatRoof(roofs, part.ring, part.holes, b, style, Math.abs(shoelace(part.ring)), height, obb, rand, wallColor, isCut);
       }
     }
-
-    if (pitched) {
-      addPitchedRoof(roofs, mb, obb, wallTop, rise, rand, seed, b.b);
-    } else {
-      addFlatRoof(roofs, ring, holes, b, style, area, height, obb, rand, [wr * tone, wg * tone, wbl * tone]);
+    if (split && passage) {
+      const soffitY = b.b + passage.clear;
+      for (const part of split.over) {
+        addWalls(part, soffitY, true);
+        addFlatRoof(roofs, part.ring, part.holes, b, style, 0, height, obb, rand, wallColor, isCut);
+        addSoffit(roofs, part, soffitY, wallColor);
+      }
     }
   }
 
@@ -190,6 +223,65 @@ export function buildBuildings(data: CampusData, hf: Heightfield, collision: Col
   return { node, facadeMaterials };
 }
 
+interface Part {
+  ring: number[];
+  holes: number[][];
+}
+
+const toPairs = (r: number[]): Pair[] => {
+  const out: Pair[] = [];
+  for (let i = 0; i < r.length; i += 2) out.push([r[i], r[i + 1]]);
+  out.push([r[0], r[1]]);
+  return out;
+};
+
+const fromPolygon = (poly: Polygon): Part => {
+  const flatten = (ring: Pair[]): number[] => {
+    const out: number[] = [];
+    // 始点と同じ終点は落とす
+    for (let i = 0; i < ring.length - 1; i++) out.push(ring[i][0], ring[i][1]);
+    return out;
+  };
+  return { ring: asOuter(flatten(poly[0])), holes: poly.slice(1).map((h) => asHole(flatten(h))) };
+};
+
+/** 建物の外形を、通り抜けの範囲 (over = 上階だけ残す部分) とそれ以外 (ground) に分ける */
+function splitByPassage(ring: number[], holes: number[][], zone: number[]): { ground: Part[]; over: Part[] } {
+  const subject: Polygon = [toPairs(ring), ...holes.map(toPairs)];
+  const clip: Polygon = [toPairs(zone)];
+  const keep = (p: Part): boolean => Math.abs(shoelace(p.ring)) > 1;
+  return {
+    ground: polygonClipping.difference(subject, clip).map(fromPolygon).filter(keep),
+    over: polygonClipping.intersection(subject, clip).map(fromPolygon).filter(keep),
+  };
+}
+
+/** 通り抜けの天井 (上に載る階の床下) */
+function addSoffit(roofs: MeshBuilder, part: Part, y: number, wallColor: number[]): void {
+  roofs.color(wallColor[0] * 0.78, wallColor[1] * 0.78, wallColor[2] * 0.78, 1);
+  const flat: number[] = [...part.ring];
+  const holeIndices: number[] = [];
+  for (const h of part.holes) {
+    holeIndices.push(flat.length / 2);
+    flat.push(...h);
+  }
+  const tris = earcut(flat, holeIndices.length ? holeIndices : undefined, 2);
+  const base = roofs.vertexCount;
+  for (let i = 0; i < flat.length; i += 2) roofs.vertex(flat[i], y, flat[i + 1], 0, -1, 0, flat[i] * 0.25, flat[i + 1] * 0.25);
+  for (let i = 0; i < tris.length; i += 3) {
+    const a = tris[i];
+    const b = tris[i + 1];
+    const c = tris[i + 2];
+    const ux = flat[b * 2] - flat[a * 2];
+    const uz = flat[b * 2 + 1] - flat[a * 2 + 1];
+    const vx = flat[c * 2] - flat[a * 2];
+    const vz = flat[c * 2 + 1] - flat[a * 2 + 1];
+    // 下向き (-Y) になる順に並べる
+    if (uz * vx - ux * vz > 0) roofs.tri(base + a, base + c, base + b);
+    else roofs.tri(base + a, base + b, base + c);
+  }
+}
+
 function addFlatRoof(
   roofs: MeshBuilder,
   ring: number[],
@@ -201,8 +293,9 @@ function addFlatRoof(
   obb: Obb,
   rand: () => number,
   wallColor: number[],
+  isCut: (x: number, z: number) => boolean,
 ): void {
-  const parapet = area > 40 ? style.parapet : 0;
+  const parapet = area > 40 || area === 0 ? style.parapet : 0;
   const roofY = b.t - parapet;
   const [rr, rg, rb] = linearRgb(hasMintRoof(b) ? MINT_ROOF_COLOR : style.roof);
   const tone = 0.88 + rand() * 0.2;
@@ -238,6 +331,7 @@ function addFlatRoof(
       const n = r.length / 2;
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n;
+        if (isCut((r[i * 2] + r[j * 2]) / 2, (r[i * 2 + 1] + r[j * 2 + 1]) / 2)) continue;
         roofs.quadPoints(
           [r[j * 2], roofY, r[j * 2 + 1]],
           [r[i * 2], roofY, r[i * 2 + 1]],
