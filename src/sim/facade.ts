@@ -53,6 +53,14 @@ export interface FacadeStyle {
   roughness: number;
   /** 陸屋根の色 */
   roof: number;
+  /** 腰壁 (窓の下) に水平ルーバーを描く強さ。バルコニーの手すりに見える */
+  louver: number;
+  /** バルコニーの奥に引っ込んだ窓の暗さ */
+  recess: number;
+  /** 丸窓にする */
+  round: boolean;
+  /** 妻側 (短辺) の壁を窓なしにする。'brace' なら X 字のブレースを描く */
+  ends: 'same' | 'blank' | 'brace';
 }
 
 const base: FacadeStyle = {
@@ -80,68 +88,188 @@ const base: FacadeStyle = {
   parapet: 0.9,
   roughness: 0.82,
   roof: 0x8d8f8c,
+  louver: 0,
+  recess: 0,
+  round: false,
+  ends: 'same',
+};
+
+/** 各階にルーバー付きのバルコニーが帯状に回る高層の研究棟 (R1・R2・R3・G1・G2・J1・B1・B2 棟) */
+const slab: FacadeStyle = {
+  ...base,
+  walls: [0xb4b6b8],
+  accent: 0x8c9096,
+  frame: 0x3f4347,
+  glass: 0x7f929b,
+  reflect: 0.35,
+  floorH: 3.9,
+  groundH: 4.6,
+  bayW: 3.6,
+  winW: 1,
+  winH: 0.5,
+  sill: 0.4,
+  mullions: 3,
+  pilaster: 0.07,
+  band: 0.1,
+  tile: [1.8, 0.9],
+  tileStrength: 0.45,
+  tileBond: false,
+  louver: 1,
+  recess: 0.55,
+  ends: 'blank',
+  parapet: 1.1,
+  roughness: 0.88,
+  roof: 0x9a9c99,
 };
 
 export const FACADE_STYLES = {
-  /** 研究棟 (低〜中層): ベージュの小口タイルに連窓 */
-  lab: { ...base },
-  /** 高層の研究棟: 柱型とスラブ帯が見える格子状の外観 */
-  tower: {
+  /** 研究棟 (低〜中層): 連窓とスパンドレルの帯 */
+  lab: {
     ...base,
-    walls: [0xd5d0c6],
-    accent: 0xbdb8ad,
-    floorH: 4.0,
-    groundH: 5.0,
-    bayW: 3.4,
-    winW: 0.82,
-    winH: 0.52,
-    sill: 0.24,
-    mullions: 2,
-    pilaster: 0.16,
-    band: 0.14,
-    tile: [0.45, 0.15],
-    tileStrength: 0.45,
-    tileBond: false,
-    reflect: 0.55,
-  },
-  /** 超高層 (J2・J3 棟): ガラスのカーテンウォール */
-  curtain: {
-    ...base,
-    walls: [0xd9dcdc],
-    accent: 0xc8cccd,
-    frame: 0x6a7076,
-    glass: 0x88a6b4,
-    reflect: 0.85,
-    floorH: 4.2,
-    groundH: 6.0,
-    bayW: 1.8,
+    walls: [0xc9c7c0],
+    accent: 0xb5b3ac,
     winW: 1,
-    winH: 0.72,
-    sill: 0.2,
-    frameT: 0.045,
-    mullions: 1,
-    pilaster: 0,
-    band: 0,
-    tile: [1.8, 0.9],
+    winH: 0.46,
+    sill: 0.3,
+    mullions: 3,
+    band: 0.16,
+    tile: [0.9, 0.45],
     tileStrength: 0.35,
     tileBond: false,
-    roomBays: 4,
-    roomDepth: 8,
-    parapet: 1.4,
-    roughness: 0.5,
+  },
+  /** R1・R2 棟 */
+  slabR: { ...slab },
+  /** R3 高層棟: やや暗いグレー */
+  slabR3: { ...slab, walls: [0x9b9a9f], accent: 0x7e8187 },
+  /** G1 棟: 濃いグレーのルーバー帯と明るい妻壁 */
+  slabG1: { ...slab, walls: [0xccc8c6], accent: 0x6b7076 },
+  /** G2 棟: コンクリート打放し */
+  slabG2: { ...slab, walls: [0xa0a3a6], accent: 0x83878b },
+  /** J1 棟 */
+  slabJ1: { ...slab, walls: [0xbfbdb8], accent: 0x9d9c98, louver: 0.5 },
+  /** B1・B2 棟: グレージュのコンクリートに張り出したバルコニー */
+  slabB: { ...slab, walls: [0xa8a29a], accent: 0x8f8a83, floorH: 3.85 },
+  /** G3 棟: 淡いスパンドレルの連窓と、全高にわたるロッキング壁 */
+  g3: { ...slab, walls: [0xcfd2d6], accent: 0xa9a39c, louver: 0, recess: 0.15, pilaster: 0.2, band: 0.2, sill: 0.34, ends: 'same' },
+  /** G5 棟: 小さな四角い窓が規則正しく並ぶ */
+  g5: {
+    ...base,
+    walls: [0xc9c6bf],
+    accent: 0xb8b5ae,
+    floorH: 3.7,
+    groundH: 4.2,
+    bayW: 2.7,
+    winW: 0.42,
+    winH: 0.34,
+    sill: 0.34,
+    mullions: 1,
+    tile: [0.9, 0.45],
+    tileStrength: 0.3,
+    tileBond: false,
+    parapet: 1.1,
+  },
+  /** J2・J3 棟: 長辺は鋼製バルコニーとルーバー、妻面は X 字の白いブレース */
+  j2j3: {
+    ...slab,
+    walls: [0xb9bdb8],
+    accent: 0x9aa0a2,
+    frame: 0x55595d,
+    glass: 0x7d98a4,
+    reflect: 0.6,
+    floorH: 4.2,
+    groundH: 8.4,
+    bayW: 3.3,
+    winH: 0.56,
+    sill: 0.34,
+    louver: 0.8,
+    recess: 0.4,
+    ends: 'brace',
+    parapet: 1.6,
+    roof: 0x7d8082,
+  },
+  /** S1 棟: オフホワイトの塗装に連窓 */
+  s1: {
+    ...base,
+    walls: [0xd8d6cf],
+    accent: 0xc6c4bd,
+    winW: 1,
+    winH: 0.44,
+    sill: 0.3,
+    mullions: 3,
+    band: 0.2,
+    floorH: 3.7,
+    groundH: 3.9,
+    tile: [0, 0],
+    tileStrength: 0,
+    roof: 0xa9aba6,
+  },
+  /** S2 棟: 灰褐色の小口タイルに深い庇とフィン */
+  s2: {
+    ...base,
+    walls: [0x7a7466],
+    accent: 0x5e584d,
+    frame: 0x3a3632,
+    winW: 0.74,
+    winH: 0.46,
+    sill: 0.3,
+    mullions: 2,
+    pilaster: 0.12,
+    band: 0.1,
+    recess: 0.35,
+    floorH: 4.3,
+    groundH: 4.6,
+    parapet: 1.2,
+  },
+  /** S3 棟 (図書館): 明るいグレーの箱に丸窓 */
+  s3: {
+    ...base,
+    walls: [0xc3c8cb],
+    accent: 0xb1b6b9,
+    frame: 0x6d7275,
+    round: true,
+    winW: 0.32,
+    winH: 0.3,
+    sill: 0.42,
+    mullions: 1,
+    frameT: 0.07,
+    floorH: 4.0,
+    groundH: 4.0,
+    bayW: 3.2,
+    tile: [0, 0],
+    tileStrength: 0,
+    roof: 0xb4b8b6,
+  },
+  /** S8 棟 (元素キューブ): 白いパネルに細長い縦窓 */
+  s8: {
+    ...base,
+    walls: [0xdce0e2],
+    accent: 0xcdd1d3,
+    frame: 0x7a7f83,
+    winW: 0.3,
+    winH: 0.72,
+    sill: 0.14,
+    mullions: 1,
+    floorH: 4.1,
+    groundH: 4.4,
+    bayW: 2.4,
+    tile: [1.2, 4.1],
+    tileStrength: 0.4,
+    tileBond: false,
+    reflect: 0.55,
+    parapet: 1.2,
   },
   /** コンクリート打放しの実験棟・付属棟 */
   concrete: {
     ...base,
-    walls: [0xb5b3ac, 0xbdb9b0],
-    accent: 0xa5a39c,
+    walls: [0xb0b0ab, 0xa9a9a4, 0xb8b6ae],
+    accent: 0xa09f99,
     floorH: 4.0,
     groundH: 0,
-    bayW: 4.5,
-    winW: 0.5,
-    winH: 0.34,
-    sill: 0.42,
-    mullions: 2,
+    bayW: 4.2,
+    winW: 1,
+    winH: 0.3,
+    sill: 0.45,
+    mullions: 3,
     tile: [1.8, 0.9],
     tileStrength: 0.5,
     tileBond: false,
@@ -149,32 +277,84 @@ export const FACADE_STYLES = {
     parapet: 0.5,
     roughness: 0.9,
   },
-  /** 大学会館など: ガラスの多い低層棟 */
-  hall: {
+  /** 白い箱型の小さな棟 (S4・S5・S7・G4-A など) */
+  whiteBox: {
     ...base,
-    walls: [0xd8d2c4],
-    accent: 0xc4bfb2,
-    frame: 0x3c4046,
-    floorH: 4.2,
+    walls: [0xdad9d4, 0xd2d3d1],
+    accent: 0xc2c2be,
+    floorH: 3.6,
+    groundH: 0,
+    bayW: 3.4,
+    winW: 0.5,
+    winH: 0.36,
+    sill: 0.36,
+    mullions: 2,
+    tile: [0.6, 3.6],
+    tileStrength: 0.3,
+    tileBond: false,
+    parapet: 0.4,
+  },
+  /** グレーの小口タイルにポツ窓 (B1・B2-B / C 棟など) */
+  greyTile: {
+    ...base,
+    walls: [0xbbbcba, 0xb2b3b0],
+    accent: 0xa5a6a3,
+    winW: 0.5,
+    winH: 0.4,
+    sill: 0.32,
+    mullions: 2,
+    floorH: 3.7,
+    groundH: 4.0,
+  },
+  /** H1 棟 (大学会館・食堂): 円形のガラス壁に白い帯 */
+  h1: {
+    ...base,
+    walls: [0xe6e7ec],
+    accent: 0xe6e7ec,
+    frame: 0xeef0f2,
+    glass: 0x3186ab,
+    reflect: 0.7,
+    floorH: 4.3,
     groundH: 4.5,
-    bayW: 2.4,
-    winW: 0.92,
-    winH: 0.7,
+    bayW: 1.5,
+    winW: 1,
+    winH: 0.74,
     sill: 0.08,
+    frameT: 0.05,
     mullions: 1,
-    transom: 0.72,
+    transom: 0.7,
+    band: 0.18,
+    tile: [0, 0],
+    tileStrength: 0,
+    roomBays: 6,
+    roomDepth: 12,
+    parapet: 0.6,
+    roof: 0xc9ccce,
+  },
+  /** H2 棟: 白とアルミのパネル */
+  h2: {
+    ...base,
+    walls: [0xe2e3e2],
+    accent: 0xb9bdc0,
+    frame: 0x70757a,
+    floorH: 4.2,
+    groundH: 4.4,
+    bayW: 2.7,
+    winW: 0.8,
+    winH: 0.5,
+    sill: 0.26,
+    mullions: 2,
     band: 0.12,
-    tile: [0.6, 0.3],
+    tile: [1.35, 4.2],
     tileStrength: 0.4,
     tileBond: false,
-    reflect: 0.6,
-    roomBays: 3,
-    roomDepth: 9,
+    reflect: 0.55,
+    roof: 0x9fd9c8,
   },
   /** 守衛所などの小さな付属建物 */
   hut: {
     ...base,
-    walls: [0xc9c5bb, 0xbfb8a8],
+    walls: [0xc9c5bb, 0xbfb8a8, 0xcfcfca],
     floorH: 3.0,
     groundH: 0,
     bayW: 2.2,
@@ -296,6 +476,7 @@ const facadeBit: ShaderBit = {
       fFrame: 'vec4<f32>', // サッシの色
       fGlass: 'vec4<f32>', // ガラスの色, 映り込み
       fAccent: 'vec4<f32>', // 柱型・帯の色, 外壁の粗さ
+      fExtra: 'vec4<f32>', // ルーバーの強さ, 窓の引っ込み, 丸窓
     },
   },
   gl: {
@@ -307,6 +488,7 @@ const facadeBit: ShaderBit = {
     float seed = vFacade.y;
     float wallH = vFacade.z;
     float plain = step(0.5, vFacade.w);
+    float braced = step(1.5, vFacade.w);
     vec2 uv = vUV;
     vec3 wallCol = vColor.rgb;
 
@@ -330,6 +512,9 @@ const facadeBit: ShaderBit = {
     float dxm = (wr.x * 0.5 - abs(bx - 0.5)) * bayW;
     float dym = (wr.y * 0.5 - abs(fy - (wr.z + wr.y * 0.5))) * fH;
     float dWin = min(dxm, dym);
+    float rWin = min(wr.x * bayW, wr.y * fH) * 0.5;
+    float dRound = rWin - length(vec2((bx - 0.5) * bayW, (fy - (wr.z + wr.y * 0.5)) * fH));
+    dWin = mix(dWin, dRound, material.fExtra.z);
     float win = smoothstep(-aa, aa, dWin) * fits * (1.0 - plain);
 
     // サッシ: 外枠・方立・無目
@@ -353,6 +538,31 @@ const facadeBit: ShaderBit = {
     float bandAmt = (1.0 - smoothstep(band * 0.5 * fH - aa, band * 0.5 * fH + aa, min(fy, 1.0 - fy) * fH)) * step(0.001, band);
     float accentAmt = max(pilAmt, bandAmt) * step(0.0, uv.y) * (1.0 - plain);
     col = mix(col, material.fAccent.rgb, accentAmt);
+
+    // 腰壁の水平ルーバー (バルコニーの手すり)。細い影の線を重ねる
+    float lv = material.fExtra.x;
+    float inSpandrel = step(fy, wr.z) * step(band * 0.5, fy) * fits * (1.0 - plain) * step(0.001, lv);
+    float slatC = uv.y / 0.14;
+    float slatFade = 1.0 - smoothstep(0.25, 0.7, fwidth(slatC));
+    float slatLine = smoothstep(0.55, 0.75, abs(fract(slatC) - 0.5) * 2.0);
+    col = mix(col, material.fAccent.rgb * (1.0 - 0.5 * slatLine * slatFade - 0.12 * (1.0 - slatFade)), inSpandrel * lv);
+    // バルコニー床の先端
+    float slabEdge = (1.0 - smoothstep(0.10, 0.10 + aa, abs(fy - wr.z) * fH)) * fits * (1.0 - plain) * step(0.001, lv);
+    col = mix(col, wallCol * 1.06, slabEdge);
+
+    // 妻面の X 字ブレース (4 層ごとに 1 組) と小さな四角窓
+    float xm = uv.x * bayW;
+    float cellH = fH0 * 4.0;
+    float by = fract(max(uv.y - gH, 0.0) / cellH);
+    float bxn = uv.x;
+    float diag = min(abs(bxn - by), abs(bxn + by - 1.0)) * min(bayW, cellH) * 0.72;
+    float braceAmt = (1.0 - smoothstep(0.42 - aa, 0.42 + aa, diag)) * braced * step(gH, uv.y) * step(uv.y, wallH - material.fDims.w);
+    float sqx = abs(fract(xm / 3.6) - 0.5) * 3.6;
+    float sqy = abs(fy - 0.55) * fH;
+    float dSq = 0.55 - max(sqx, sqy);
+    float sqWin = smoothstep(-aa, aa, dSq) * braced * fits * (1.0 - braceAmt);
+    float sqFrame = (1.0 - smoothstep(0.05 - aa, 0.05 + aa, dSq)) * sqWin;
+    col = mix(col, vec3(0.86, 0.86, 0.85), braceAmt);
 
     // タイル目地 (遠くでは消してモアレを防ぐ)
     vec2 tc = vec2(uv.x * bayW, uv.y) / max(material.fTile.xy, vec2(0.01));
@@ -406,16 +616,19 @@ const facadeBit: ShaderBit = {
     float shelf = step(0.12, bw.x) * step(bw.x, 0.34 + 0.3 * rh2) * step(bw.y, 0.6) * isBack * step(0.3, rh);
     room = mix(room, room * vec3(0.5, 0.44, 0.38), shelf);
     // 天井の照明
-    float strip = step(0.8, fract(-hp.z / 1.7 + 0.3)) * step(0.2, fract(hp.x / 1.25 + rh));
+    float camDist = length(vPosition - uCameraPosition.xyz);
+    float sz = -hp.z / 2.8 + 0.3;
+    float szw = fwidth(sz);
+    float strip = smoothstep(0.78 - szw, 0.78 + szw, fract(sz)) * (1.0 - smoothstep(0.2, 0.6, szw)) * (1.0 - smoothstep(25.0, 55.0, camDist));
     float night = material.fRoom.w;
     float lit = step(1.0 - material.fRoom.z, rh) * night;
     float depthShade = mix(1.0, 0.4, clamp(-hp.z / depth, 0.0, 1.0));
-    vec3 interior = room * depthShade * mix(0.5, 1.0, lit);
-    interior += vec3(0.95, 0.93, 0.86) * strip * isCeil * (0.22 + 0.5 * lit);
+    vec3 interior = room * depthShade * mix(0.42, 1.0, lit);
+    interior += vec3(0.95, 0.93, 0.86) * strip * isCeil * (0.07 * step(0.45, rh) + 0.6 * lit);
     // ブラインド
     float blindAmt = step(0.5, rh2) * fract(rh2 * 7.7);
     float blind = step(1.0 - blindAmt, wy);
-    float slat = 0.8 + 0.2 * step(0.5, fract(uv.y / 0.05)) * (1.0 - smoothstep(0.012, 0.03, fwidth(uv.y)));
+    float slat = 1.0 - 0.2 * step(0.5, fract(uv.y / 0.05)) * (1.0 - smoothstep(6.0, 14.0, camDist));
     interior = mix(interior, vec3(0.52, 0.51, 0.47) * slat, blind * 0.94);
 
     float reflectK = material.fGlass.a;
@@ -424,13 +637,16 @@ const facadeBit: ShaderBit = {
     float recess = smoothstep(0.0, 0.14, dWin + (1.0 - wy) * 0.1);
     glassCol *= mix(0.55, 1.0, recess);
 
-    float glassAmt = win * (1.0 - frameAmt);
+    // バルコニーの奥に引っ込んだ窓は軒の影で暗い
+    glassCol *= 1.0 - material.fExtra.y * 0.6;
+    frameAmt = max(frameAmt, sqFrame);
+    float glassAmt = max(win * (1.0 - frameAmt), sqWin * (1.0 - sqFrame));
     col = mix(col, material.fFrame.rgb, frameAmt);
     albedo = mix(col, glassCol, glassAmt);
     roughness = mix(material.fAccent.a, 0.07, glassAmt);
     roughness = mix(roughness, 0.42, frameAmt);
     metallic = 0.0;
-    fresnelF0 = mix(vec3(0.04), vec3(0.05 + 0.45 * reflectK), glassAmt);
+    fresnelF0 = mix(vec3(0.04), vec3(0.04 + 0.22 * reflectK), glassAmt * (1.0 - material.fExtra.y * 0.5));
 
     // ガラス 1 枚ごとのわずかな傾きで、映り込みに揺らぎを出す
     float pane = cwHash(vec2(bIdx * 3.1 + seed * 13.0, fIdx * 7.7 + floor(wx * mCount)));
@@ -461,6 +677,7 @@ export function createFacadeMaterial(style: FacadeStyle): Material3D {
   data.fFrame = [...linearRgb(style.frame), 1];
   data.fGlass = [...linearRgb(style.glass), style.reflect];
   data.fAccent = [...linearRgb(style.accent), style.roughness];
+  data.fExtra = [style.louver, style.recess, style.round ? 1 : 0, 0];
   return material;
 }
 

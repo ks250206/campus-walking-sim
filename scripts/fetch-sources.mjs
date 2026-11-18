@@ -82,7 +82,11 @@ const addTiles = (layer, ext, zoom, bounds, margin, optional = false) => {
   const r = tileRange(b, zoom);
   for (let x = r.x0; x <= r.x1; x++) {
     for (let y = r.y0; y <= r.y1; y++) {
-      tileJobs.push({ url: `${GSI}/${layer}/${zoom}/${x}/${y}.${ext}`, file: path.join(RAW, 'gsi', layer, `${zoom}_${x}_${y}.${ext}`), optional });
+      tileJobs.push({
+        url: `${GSI}/${layer}/${zoom}/${x}/${y}.${ext}`,
+        file: path.join(RAW, 'gsi', layer, `${zoom}_${x}_${y}.${ext}`),
+        optional,
+      });
     }
   }
 };

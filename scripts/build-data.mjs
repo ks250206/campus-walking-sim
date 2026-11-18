@@ -223,7 +223,12 @@ for (let pass = 0; pass < 50 && missing > 0; pass++) {
       if (!Number.isNaN(heights[j * T.nx + i])) continue;
       let s = 0;
       let n = 0;
-      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [di, dj] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ]) {
         const v = heights[(j + dj) * T.nx + i + di];
         if (i + di >= 0 && i + di < T.nx && j + dj >= 0 && j + dj < T.nz && !Number.isNaN(v)) {
           s += v;
@@ -329,7 +334,8 @@ const areaKind = (t) => {
   if (t.natural === 'water' || t.leisure === 'swimming_pool') return t.covered === 'yes' ? 'covered_water' : 'water';
   if (t.natural === 'wood' || t.landuse === 'forest') return 'forest';
   if (t.natural === 'scrub') return 'scrub';
-  if (t.landuse === 'grass' || t.landuse === 'meadow' || t.leisure === 'park' || t.landuse === 'recreation_ground') return t.leisure === 'park' ? 'park' : 'grass';
+  if (t.landuse === 'grass' || t.landuse === 'meadow' || t.leisure === 'park' || t.landuse === 'recreation_ground')
+    return t.leisure === 'park' ? 'park' : 'grass';
   if (t.landuse === 'farmland' || t.landuse === 'orchard') return 'farmland';
   if (t.amenity === 'parking') return 'parking';
   if (t.amenity === 'parking_space') return 'parking_space';
@@ -375,7 +381,12 @@ for (const rel of osm.relations.values()) {
   const innerRings = inner.map((ids) => ids.map(nodeXZ).filter(Boolean));
   for (const ids of outer) {
     const ring = ids.map(nodeXZ).filter(Boolean);
-    pushArea(kind, ring, innerRings.filter((h) => h.length >= 3 && pointInRing(h[0], ring)), rel.tags);
+    pushArea(
+      kind,
+      ring,
+      innerRings.filter((h) => h.length >= 3 && pointInRing(h[0], ring)),
+      rel.tags,
+    );
   }
 }
 
@@ -412,7 +423,13 @@ for (const n of osm.nodes.values()) {
   if (!kind) continue;
   const p = toWorld(n.lat, n.lon);
   if (!inBounds(p)) continue;
-  pois.push({ k: kind, x: round(p[0], 1), z: round(p[1], 1), ...(t.name ? { n: t.name } : {}), ...(t['name:en'] ? { en: t['name:en'] } : {}) });
+  pois.push({
+    k: kind,
+    x: round(p[0], 1),
+    z: round(p[1], 1),
+    ...(t.name ? { n: t.name } : {}),
+    ...(t['name:en'] ? { en: t['name:en'] } : {}),
+  });
 }
 
 // ------------------------------------------------------------------ 植生 (空中写真から樹冠を推定)
@@ -514,7 +531,22 @@ const unflat = (a) => {
 for (const b of buildings) stampRing(b.ring, 1.6);
 for (const r of roads) stampLine(unflat(r.p), r.w / 2 + (r.k === 'footway' || r.k === 'path' || r.k === 'steps' ? 0.3 : 0.9));
 for (const a of areas) {
-  if (['water', 'covered_water', 'parking', 'parking_space', 'tennis', 'pitch', 'plaza', 'platform', 'farmland', 'bridge', 'bicycle_parking'].includes(a.k)) stampRing(unflat(a.r), 0.5);
+  if (
+    [
+      'water',
+      'covered_water',
+      'parking',
+      'parking_space',
+      'tennis',
+      'pitch',
+      'plaza',
+      'platform',
+      'farmland',
+      'bridge',
+      'bicycle_parking',
+    ].includes(a.k)
+  )
+    stampRing(unflat(a.r), 0.5);
 }
 
 // ジッタ付き格子で候補を作り、樹冠の上にあるものだけ残す
@@ -636,9 +668,24 @@ const campus = {
     baseElevation: BASE_ELEVATION,
     bounds: WORLD,
     sources: [
-      { name: 'OpenStreetMap', license: 'ODbL 1.0', credit: '© OpenStreetMap contributors', url: 'https://www.openstreetmap.org/copyright' },
-      { name: '3D都市モデル Project PLATEAU (横浜市 2024年度, 町田市 2025年度)', license: 'CC BY 4.0', credit: '国土交通省', url: 'https://www.mlit.go.jp/plateau/' },
-      { name: '地理院タイル (標高タイル DEM5A/DEM10B, 全国最新写真シームレス)', license: '国土地理院コンテンツ利用規約', credit: '国土地理院', url: 'https://maps.gsi.go.jp/development/ichiran.html' },
+      {
+        name: 'OpenStreetMap',
+        license: 'ODbL 1.0',
+        credit: '© OpenStreetMap contributors',
+        url: 'https://www.openstreetmap.org/copyright',
+      },
+      {
+        name: '3D都市モデル Project PLATEAU (横浜市 2024年度, 町田市 2025年度)',
+        license: 'CC BY 4.0',
+        credit: '国土交通省',
+        url: 'https://www.mlit.go.jp/plateau/',
+      },
+      {
+        name: '地理院タイル (標高タイル DEM5A/DEM10B, 全国最新写真シームレス)',
+        license: '国土地理院コンテンツ利用規約',
+        credit: '国土地理院',
+        url: 'https://maps.gsi.go.jp/development/ichiran.html',
+      },
     ],
   },
   terrain: { file: 'terrain.bin', x0: T.x0, z0: T.z0, step: STEP, nx: T.nx, nz: T.nz, hMin: y(hMin), unit: 0.01 },
@@ -654,7 +701,9 @@ const campus = {
 fs.writeFileSync(path.join(OUT, 'campus.json'), JSON.stringify(campus));
 const size = (f) => `${(fs.statSync(path.join(OUT, f)).size / 1024).toFixed(0)} KB`;
 console.log(`出力: campus.json ${size('campus.json')}, terrain.bin ${size('terrain.bin')}, far.bin ${size('far.bin')}`);
-console.log(`  建物 ${outBuildings.length} (キャンパス内 ${outBuildings.filter((b) => b.c).length}), 道路 ${roads.length}, 面 ${areas.length}, 目印 ${campus.pois.length}`);
+console.log(
+  `  建物 ${outBuildings.length} (キャンパス内 ${outBuildings.filter((b) => b.c).length}), 道路 ${roads.length}, 面 ${areas.length}, 目印 ${campus.pois.length}`,
+);
 
 // ------------------------------------------------------------------ 確認用の出力
 if (DEBUG_DIR) {
@@ -669,13 +718,37 @@ if (DEBUG_DIR) {
     for (let i = 0; i < a.length; i += 2) s += `${px(a[i])},${pz(a[i + 1])} `;
     return s;
   };
-  const fill = { forest: '#2f5d34', scrub: '#55783f', grass: '#8fbf6a', park: '#8fbf6a', farmland: '#b9a56b', parking: '#777', parking_space: '#999', water: '#4a86c5', covered_water: '#6b8399', tennis: '#3b8f6b', pitch: '#3b8f6b', plaza: '#d8cfc0', residential: '#e6e0d6', commercial: '#ddd', cemetery: '#bbb', construction: '#c9b', platform: '#aaa', school: '#eed', bridge: '#999', bicycle_parking: '#99a' };
+  const fill = {
+    forest: '#2f5d34',
+    scrub: '#55783f',
+    grass: '#8fbf6a',
+    park: '#8fbf6a',
+    farmland: '#b9a56b',
+    parking: '#777',
+    parking_space: '#999',
+    water: '#4a86c5',
+    covered_water: '#6b8399',
+    tennis: '#3b8f6b',
+    pitch: '#3b8f6b',
+    plaza: '#d8cfc0',
+    residential: '#e6e0d6',
+    commercial: '#ddd',
+    cemetery: '#bbb',
+    construction: '#c9b',
+    platform: '#aaa',
+    school: '#eed',
+    bridge: '#999',
+    bicycle_parking: '#99a',
+  };
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#cfd8c0"/>`;
   for (const a of areas) svg += `<polygon points="${poly(a.r)}" fill="${fill[a.k] ?? '#f0f'}" opacity="0.8"/>`;
-  for (const r of campusRings) svg += `<polygon points="${poly(flat(r))}" fill="none" stroke="#d00" stroke-width="3" stroke-dasharray="10 6"/>`;
+  for (const r of campusRings)
+    svg += `<polygon points="${poly(flat(r))}" fill="none" stroke="#d00" stroke-width="3" stroke-dasharray="10 6"/>`;
   const stroke = { rail: '#333', steps: '#e55', footway: '#fff', path: '#fc9', pedestrian: '#fff', track: '#cb8' };
-  for (const r of roads) svg += `<polyline points="${poly(r.p)}" fill="none" stroke="${stroke[r.k] ?? '#555'}" stroke-width="${(r.w * S).toFixed(1)}" stroke-linecap="round" stroke-linejoin="round" opacity="${r.tn ? 0.4 : 1}"/>`;
-  for (let i = 0; i < campus.trees.length; i += 4) svg += `<circle cx="${px(campus.trees[i])}" cy="${pz(campus.trees[i + 1])}" r="${(campus.trees[i + 2] * 0.22 * S).toFixed(1)}" fill="${['#1f7a2e', '#0d4a2a', '#59a84b'][campus.trees[i + 3]]}" opacity="0.75"/>`;
+  for (const r of roads)
+    svg += `<polyline points="${poly(r.p)}" fill="none" stroke="${stroke[r.k] ?? '#555'}" stroke-width="${(r.w * S).toFixed(1)}" stroke-linecap="round" stroke-linejoin="round" opacity="${r.tn ? 0.4 : 1}"/>`;
+  for (let i = 0; i < campus.trees.length; i += 4)
+    svg += `<circle cx="${px(campus.trees[i])}" cy="${pz(campus.trees[i + 1])}" r="${(campus.trees[i + 2] * 0.22 * S).toFixed(1)}" fill="${['#1f7a2e', '#0d4a2a', '#59a84b'][campus.trees[i + 3]]}" opacity="0.75"/>`;
   for (const b of outBuildings) {
     const hgt = b.t - b.b;
     const shade = Math.max(40, 200 - hgt * 2.2);

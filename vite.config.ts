@@ -1,25 +1,26 @@
-import tailwindcss from "@tailwindcss/vite";
-import react from "@vitejs/plugin-react";
-import { defineConfig, lazyPlugins } from "vite-plus";
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig, lazyPlugins } from 'vite-plus';
 
 // https://viteplus.dev/config
 export default defineConfig({
-  base: "./",
+  base: './',
   fmt: {
     printWidth: 140,
     singleQuote: true,
+    ignorePatterns: ['public/data/**', 'data/**', 'dist/**', 'pnpm-lock.yaml'],
   },
   lint: {
-    plugins: ["react", "typescript", "oxc"],
+    plugins: ['react', 'typescript', 'oxc'],
     rules: {
-      "react/rules-of-hooks": "error",
-      "react/only-export-components": [
-        "warn",
+      'react/rules-of-hooks': 'error',
+      'react/only-export-components': [
+        'warn',
         {
           allowConstantExport: true,
         },
       ],
-      "vite-plus/prefer-vite-plus-imports": "error",
+      'vite-plus/prefer-vite-plus-imports': 'error',
     },
     options: {
       typeAware: true,
@@ -27,14 +28,14 @@ export default defineConfig({
     },
     jsPlugins: [
       {
-        name: "vite-plus",
-        specifier: "vite-plus/oxlint-plugin",
+        name: 'vite-plus',
+        specifier: 'vite-plus/oxlint-plugin',
       },
     ],
   },
   plugins: lazyPlugins(() => [react(), tailwindcss()]),
   build: {
-    target: "es2023",
+    target: 'es2023',
     chunkSizeWarningLimit: 1500,
   },
 });

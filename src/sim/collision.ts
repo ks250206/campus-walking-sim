@@ -4,7 +4,7 @@
  */
 export class CollisionWorld {
   private readonly cell = 8;
-  private readonly segs: number[] = []; // ax, az, bx, bz, 上端の高さ
+  private readonly segs: number[] = []; // ax, az, bx, bz, 上端の高さ, 下端の高さ
   private readonly circles: number[] = []; // x, z, r, 上端の高さ
   private readonly segGrid = new Map<number, number[]>();
   private readonly circleGrid = new Map<number, number[]>();
@@ -13,10 +13,10 @@ export class CollisionWorld {
     return (ix + 4096) * 8192 + (iz + 4096);
   }
 
-  /** 壁の線分。top より高い位置 (橋の上など) にいるときは無視される */
-  addSegment(ax: number, az: number, bx: number, bz: number, top = Infinity): void {
-    const id = this.segs.length / 5;
-    this.segs.push(ax, az, bx, bz, top);
+  /** 壁の線分。足元が top 以上、または頭が bottom より下 (橋の下など) にあるときは無視される */
+  addSegment(ax: number, az: number, bx: number, bz: number, top = Infinity, bottom = -Infinity): void {
+    const id = this.segs.length / 6;
+    this.segs.push(ax, az, bx, bz, top, bottom);
     const i0 = Math.floor(Math.min(ax, bx) / this.cell);
     const i1 = Math.floor(Math.max(ax, bx) / this.cell);
     const j0 = Math.floor(Math.min(az, bz) / this.cell);
@@ -39,8 +39,8 @@ export class CollisionWorld {
     }
   }
 
-  addPolyline(points: number[], top = Infinity): void {
-    for (let i = 0; i + 3 < points.length; i += 2) this.addSegment(points[i], points[i + 1], points[i + 2], points[i + 3], top);
+  addPolyline(points: number[], top = Infinity, bottom = -Infinity): void {
+    for (let i = 0; i + 3 < points.length; i += 2) this.addSegment(points[i], points[i + 1], points[i + 2], points[i + 3], top, bottom);
   }
 
   addCircle(x: number, z: number, r: number, top = Infinity): void {
@@ -70,8 +70,8 @@ export class CollisionWorld {
           const segList = this.segGrid.get(k);
           if (segList) {
             for (const id of segList) {
-              const o = id * 5;
-              if (feetY >= this.segs[o + 4] - 0.05) continue;
+              const o = id * 6;
+              if (feetY >= this.segs[o + 4] - 0.05 || feetY + 1.7 < this.segs[o + 5]) continue;
               const ax = this.segs[o];
               const az = this.segs[o + 1];
               const dx = this.segs[o + 2] - ax;

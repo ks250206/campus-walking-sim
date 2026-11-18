@@ -8,7 +8,9 @@ import { CollisionWorld } from './collision';
 import { Heightfield, signedDistanceToPolygon } from './heightfield';
 import { Player } from './player';
 import type { PlayerInput } from './player';
-import { buildProps } from './props';
+import { buildProps, prepareTerrain } from './props';
+import { setFacadeNight } from './facade';
+import type { Material3D } from '@pixi/3d';
 import { resolutionScale } from './settings';
 import type { Settings, ShadowLevel } from './settings';
 import { Sky } from './sky';
@@ -16,6 +18,8 @@ import { buildTerrain } from './terrain';
 import type { CampusData } from './types';
 import { buildVegetation } from './vegetation';
 import { Decks } from './decks';
+import { renderMapImage } from './mapImage';
+import type { MapImage } from './mapImage';
 
 export interface HudState {
   fps: number;
@@ -44,7 +48,7 @@ const SHADOW_QUALITY: Record<Exclude<ShadowLevel, 'off'>, 'low' | 'medium' | 'hi
 };
 
 /** スタート地点: すずかけ門を入ったところ */
-const SPAWN = { x: -206, z: -144, yaw: -70 };
+const SPAWN = { x: -214, z: -146.5, yaw: -84 };
 
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
@@ -55,9 +59,8 @@ export class Simulator {
   readonly player: Player;
   readonly sky: Sky;
   readonly landmarks: Landmark[] = [];
-  /** 地面の色のキャンバス (ミニマップの下地に使う) */
-  readonly groundCanvas: HTMLCanvasElement;
-  readonly paintRect: { x0: number; z0: number; size: number };
+  /** ミニマップ・全体図の下地 */
+  readonly map: MapImage;
   onHud: ((state: HudState) => void) | null = null;
   onLockChange: ((locked: boolean) => void) | null = null;
 
@@ -69,10 +72,14 @@ export class Simulator {
   private fpsSmooth = 60;
   private place = '';
   private placeTimer = 0;
+  private showcase = true;
+  private showcaseAngle = 0.6;
   private ssao: SsaoEffect | null = null;
   private fxaa: FxaaEffect | null = null;
   private readonly disposers: (() => void)[] = [];
   private readonly campusBoundary: number[][];
+  private readonly facadeMaterials: Material3D[];
+  private readonly lampMaterial: Material3D;
 
   private constructor(app: Application, view: View3D, world: Container3D, data: CampusData, settings: Settings, parts: BuiltWorld) {
     this.app = app;
@@ -81,8 +88,9 @@ export class Simulator {
     this.hf = parts.hf;
     this.sky = parts.sky;
     this.player = parts.player;
-    this.groundCanvas = parts.groundCanvas;
-    this.paintRect = parts.paintRect;
+    this.map = parts.map;
+    this.facadeMaterials = parts.facadeMaterials;
+    this.lampMaterial = parts.lampMaterial;
     this.campusBoundary = data.json.campusBoundary;
     void world;
 
@@ -127,7 +135,7 @@ export class Simulator {
     const view = new View3D({
       autoResize: true,
       toneMapping: 'aces',
-      exposure: 1.08,
+      exposure: 1.0,
       shadowQuality: settings.shadows === 'off' ? 'medium' : SHADOW_QUALITY[settings.shadows],
       shadowFilter: 'pcf',
     });
@@ -144,6 +152,7 @@ export class Simulator {
     await nextFrame();
     const hf = new Heightfield(data.terrain, json.terrain);
     const collision = new CollisionWorld();
+    prepareTerrain(json, hf);
     const decks = new Decks(json, hf);
 
     const sky = new Sky(view, world, settings.shadows !== 'off');
@@ -162,7 +171,8 @@ export class Simulator {
 
     onProgress('道路・設備を配置中', 0.8);
     await nextFrame();
-    world.addChild(buildProps(data, hf, collision, decks));
+    const props = buildProps(data, hf, collision, decks);
+    world.addChild(props.node);
 
     const b = json.meta.bounds;
     const player = new Player(hf, collision, decks, { minX: b.minX + 4, maxX: b.maxX - 4, minZ: b.minZ + 4, maxZ: b.maxZ - 4 });
@@ -173,8 +183,9 @@ export class Simulator {
       hf,
       sky,
       player,
-      groundCanvas: terrain.macro,
-      paintRect: terrain.paintRect,
+      map: renderMapImage(json),
+      facadeMaterials: buildings.facadeMaterials,
+      lampMaterial: props.lampMaterial,
     });
     // 最初の 1 フレームでシェーダをコンパイルしておく
     await nextFrame();
@@ -198,7 +209,13 @@ export class Simulator {
       if (settings.shadows !== 'off') view.shadowQuality = SHADOW_QUALITY[settings.shadows];
     }
 
-    if (force || prev.timeOfDay !== settings.timeOfDay) this.sky.setTime(settings.timeOfDay);
+    if (force || prev.timeOfDay !== settings.timeOfDay) {
+      this.sky.setTime(settings.timeOfDay);
+      // 暗くなったら窓明かりと街灯をつける
+      const night = this.sky.night;
+      for (const m of this.facadeMaterials) setFacadeNight(m, night, 0.45);
+      if (this.lampMaterial.emissive) this.lampMaterial.emissive.strength = night * 7;
+    }
 
     // 見通し距離: 霞の濃さ (およそ 0.6 km 〜 6 km)
     if (force || prev.visibility !== settings.visibility) {
@@ -243,7 +260,11 @@ export class Simulator {
   // ---------------------------------------------------------------- 入力
   private bindInput(): void {
     const canvas = this.app.canvas;
-    const on = <K extends keyof DocumentEventMap>(target: Document | Window | HTMLElement, type: K, fn: (e: DocumentEventMap[K]) => void): void => {
+    const on = <K extends keyof DocumentEventMap>(
+      target: Document | Window | HTMLElement,
+      type: K,
+      fn: (e: DocumentEventMap[K]) => void,
+    ): void => {
       target.addEventListener(type, fn as EventListener);
       this.disposers.push(() => target.removeEventListener(type, fn as EventListener));
     };
@@ -262,6 +283,11 @@ export class Simulator {
       if (!this.active) return;
       if (e.code === 'Tab' || e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
       if (e.repeat) return;
+      // ブラウザが Esc を自分で処理しない環境でも、メニューに戻れるようにする
+      if (e.code === 'Escape' || e.code === 'KeyP') {
+        this.releaseLock();
+        return;
+      }
       this.keys.add(e.code);
       if (e.code === 'KeyF') this.player.flying = !this.player.flying;
       if (e.code === 'KeyR') this.respawn();
@@ -281,14 +307,20 @@ export class Simulator {
     try {
       // 可能なら OS のマウス加速を外した生の移動量を使う
       const result = canvas.requestPointerLock({ unadjustedMovement: true });
-      if (result && typeof result.catch === 'function') result.catch(() => canvas.requestPointerLock());
+      if (result && typeof result.catch === 'function') result.catch(() => void canvas.requestPointerLock());
     } catch {
-      canvas.requestPointerLock();
+      void canvas.requestPointerLock();
     }
   }
 
   releaseLock(): void {
     if (document.pointerLockElement) document.exitPointerLock();
+  }
+
+  /** タイトル画面用の俯瞰カメラに切り替える */
+  setShowcase(enabled: boolean): void {
+    this.showcase = enabled;
+    if (!enabled) this.player.applyTo(this.view.camera);
   }
 
   respawn(): void {
@@ -313,9 +345,18 @@ export class Simulator {
     input.up = (k.has('Space') || k.has('KeyE') ? 1 : 0) - (k.has('ControlLeft') || k.has('KeyQ') || k.has('KeyC') ? 1 : 0);
 
     const p = this.player;
-    if (this.active) p.update(dt, input, this.settings.headBob);
-    p.applyTo(this.view.camera);
-    const cam = this.view.camera.position;
+    const camera = this.view.camera;
+    if (this.showcase) {
+      // タイトル画面: キャンパスの上空をゆっくり回る
+      this.showcaseAngle += dt * 0.035;
+      const a = this.showcaseAngle;
+      camera.position.set(-10 + Math.sin(a) * 330, 150, -10 + Math.cos(a) * 330);
+      camera.lookAt({ x: -10, y: 22, z: -10 });
+    } else {
+      if (this.active) p.update(dt, input, this.settings.headBob);
+      p.applyTo(camera);
+    }
+    const cam = camera.position;
     this.sky.update(cam.x, cam.y, cam.z);
 
     this.fpsSmooth += (ticker.FPS - this.fpsSmooth) * 0.05;
@@ -361,6 +402,8 @@ export class Simulator {
   /** 開発・検証用: 視点を直接指定する */
   debugView(x: number, z: number, yawDeg: number, pitchDeg = 0, height?: number): void {
     const p = this.player;
+    this.showcase = false;
+    p.flying = false;
     p.teleport(x, z, yawDeg);
     p.pitch = (pitchDeg * Math.PI) / 180;
     if (height !== undefined) {
@@ -383,6 +426,7 @@ interface BuiltWorld {
   hf: Heightfield;
   sky: Sky;
   player: Player;
-  groundCanvas: HTMLCanvasElement;
-  paintRect: { x0: number; z0: number; size: number };
+  map: MapImage;
+  facadeMaterials: Material3D[];
+  lampMaterial: Material3D;
 }

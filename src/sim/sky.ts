@@ -75,6 +75,8 @@ export class Sky {
   private readonly dome: Mesh3D;
   private readonly material: FlatMaterial;
   private hour = 10.5;
+  /** 0 = 昼, 1 = 夜 (窓明かりや街灯に使う) */
+  night = 0;
 
   private readonly view: View3D;
 
@@ -84,7 +86,7 @@ export class Sky {
       color: 0xfff1dc,
       intensity: 3.2,
       castShadow: shadows,
-      shadow: { cascades: 3, maxDistance: 190, lambda: 0.78, normalBias: 0.06 },
+      shadow: { cascades: 3, maxDistance: 190, lambda: 0.78, normalBias: 0.06, update: [1, 2, 3] },
     });
     parent.addChild(this.sun);
 
@@ -136,18 +138,21 @@ export class Sky {
     const day = smooth(-0.1, 0.18, up); // 0 = 夜, 1 = 昼
     const golden = 1 - smooth(0.05, 0.42, up); // 朝夕の赤み
 
-    const sunCol = mixRgb([1.0, 0.95, 0.86], [1.0, 0.55, 0.26], golden);
+    const sunCol = mixRgb([1.0, 0.96, 0.88], [1.0, 0.56, 0.27], golden);
     this.sun.color = toHex(sunCol);
-    this.sun.intensity = 3.4 * day * (1 - golden * 0.45);
+    this.sun.intensity = 4.6 * day * (1 - golden * 0.5);
 
-    const zenith = mixRgb(mixRgb([0.015, 0.02, 0.05], [0.2, 0.42, 0.78], day), [0.24, 0.32, 0.56], golden * day * 0.6);
-    const horizon = mixRgb(mixRgb([0.03, 0.04, 0.08], [0.74, 0.83, 0.91], day), [0.98, 0.66, 0.42], golden * day * 0.8);
+    const zenith = mixRgb(mixRgb([0.015, 0.02, 0.05], [0.27, 0.46, 0.76], day), [0.24, 0.32, 0.56], golden * day * 0.6);
+    const horizon = mixRgb(mixRgb([0.03, 0.04, 0.08], [0.76, 0.84, 0.91], day), [0.98, 0.66, 0.42], golden * day * 0.8);
 
-    this.environment.skyColor = toHex(mixRgb(zenith, horizon, 0.45));
-    this.environment.groundColor = toHex(mixRgb([0.02, 0.02, 0.03], [0.4, 0.38, 0.31], day));
-    this.environment.intensity = 0.12 + 0.85 * day;
+    // 天空光は空の色そのままだと青すぎるので、雲や霞の白を混ぜた色にする
+    const skyLight = mixRgb(mixRgb(zenith, horizon, 0.6), [0.86, 0.88, 0.9], 0.45 * day);
+    this.environment.skyColor = toHex(skyLight);
+    this.environment.groundColor = toHex(mixRgb([0.02, 0.02, 0.03], [0.46, 0.43, 0.36], day));
+    this.environment.intensity = 0.1 + 0.62 * day;
     this.fog.color = toHex(horizon);
     this.view.background = toHex(horizon);
+    this.night = 1 - smooth(-0.02, 0.22, up);
 
     const data = this.material.data as Record<string, unknown>;
     data.sunDir = [east, up, -north];

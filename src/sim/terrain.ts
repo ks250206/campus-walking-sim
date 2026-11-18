@@ -26,19 +26,20 @@ const groundBit: ShaderBit = {
     vec4 mk = sampleMask(vUV);
     vec3 col = sampleMacro(vUV).rgb;
 
-    float nLow = cwNoise(wp * 0.043);
-    float nMid = cwFbm(wp * 0.31 + 17.0);
-    float nHi = cwNoise(wp * 2.7);
-    float nFine = cwNoise(wp * 13.0);
+    float nLow = cwFbm(wp * 0.021 + 3.0);
+    float nMid = cwFbm(wp * 0.19 + 17.0);
+    float nHi = cwFbm(wp * 1.3 + 7.0);
+    float nFine = cwFbm(vec2(wp.x * 0.8 - wp.y * 0.6, wp.x * 0.6 + wp.y * 0.8) * 7.0);
 
     // 草地・土: 大きなムラ + 近くでは細かい粒
     float grassy = mk.a;
-    col *= 0.80 + 0.26 * nLow + 0.22 * (nMid - 0.5);
-    col *= 1.0 + grassy * (mid * (nHi - 0.5) * 0.42 + near * (nFine - 0.5) * 0.5);
-    col = mix(col, col * vec3(1.12, 1.03, 0.78), grassy * smoothstep(0.52, 0.86, nMid) * 0.45);
+    col *= 0.84 + 0.22 * nLow + 0.2 * (nMid - 0.5);
+    col *= 1.0 + grassy * (mid * (nHi - 0.5) * 0.34 + near * (nFine - 0.5) * 0.5);
+    col = mix(col, col * vec3(1.14, 1.04, 0.74), grassy * smoothstep(0.5, 0.8, nMid) * 0.4);
+    col = mix(col, col * vec3(0.86, 0.97, 0.82), grassy * smoothstep(0.55, 0.3, nLow) * 0.5);
     float rough = 0.97;
 
-    // 歩道 (インターロッキングブロック)
+    // 歩道 (ベージュのインターロッキングブロック)
     float wG = fwidth(mk.g) * 0.75 + 0.012;
     float pavedAmt = smoothstep(0.5 - wG, 0.5 + wG, mk.g);
     vec2 pv = wp / vec2(0.2, 0.1);
@@ -46,7 +47,7 @@ const groundBit: ShaderBit = {
     vec2 pf = abs(fract(pv) - 0.5);
     float joint = smoothstep(0.40, 0.5, max(pf.x, pf.y)) * near;
     float blockTone = cwHash(floor(pv)) - 0.5;
-    vec3 pavedCol = vec3(0.585, 0.555, 0.515) * (0.93 + 0.16 * blockTone * near + 0.16 * (nMid - 0.5) + 0.06 * (nLow - 0.5));
+    vec3 pavedCol = vec3(0.70, 0.635, 0.545) * (0.93 + 0.14 * blockTone * near + 0.16 * (nMid - 0.5) + 0.08 * (nLow - 0.5));
     pavedCol *= 1.0 - joint * 0.2;
     col = mix(col, pavedCol, pavedAmt);
     rough = mix(rough, 0.9, pavedAmt);
@@ -55,15 +56,17 @@ const groundBit: ShaderBit = {
     float wR = fwidth(mk.r) * 0.75 + 0.012;
     float asphaltAmt = smoothstep(0.5 - wR, 0.5 + wR, mk.r);
     float curb = smoothstep(0.16, 0.30, mk.r) * (1.0 - asphaltAmt);
-    vec3 asphaltCol = vec3(0.255, 0.255, 0.265) * (0.92 + 0.26 * (nMid - 0.5) + 0.10 * (nLow - 0.5) + near * (nFine - 0.5) * 0.32);
-    col = mix(col, vec3(0.63, 0.62, 0.59) * (0.92 + 0.16 * nHi), curb * 0.92);
+    vec3 asphaltCol = vec3(0.37, 0.365, 0.355) * (0.9 + 0.2 * (nMid - 0.5) + 0.12 * (nLow - 0.5) + near * (nFine - 0.5) * 0.3);
+    // タイヤが通るところは少し黒ずみ、路肩は白っぽい
+    asphaltCol *= mix(1.08, 0.94, smoothstep(0.6, 1.0, mk.r));
+    col = mix(col, vec3(0.66, 0.65, 0.62) * (0.92 + 0.16 * nHi), curb * 0.92);
     col = mix(col, asphaltCol, asphaltAmt);
     rough = mix(rough, 0.84, asphaltAmt);
 
     // 路面標示
     float wB = fwidth(mk.b) * 0.75 + 0.03;
     float paint = smoothstep(0.42 - wB, 0.42 + wB, mk.b) * (0.72 + 0.28 * nHi);
-    col = mix(col, vec3(0.86, 0.86, 0.82), paint * max(asphaltAmt, pavedAmt));
+    col = mix(col, vec3(0.88, 0.88, 0.84), paint * max(asphaltAmt, pavedAmt));
 
     albedo = decodeColor(clamp(col, 0.0, 1.0));
     roughness = rough;

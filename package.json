@@ -6,8 +6,12 @@
   "scripts": {
     "dev": "vp dev",
     "build": "tsc -b && vp build",
+    "preview": "vp preview",
+    "check": "vp check",
     "lint": "vp lint",
-    "preview": "vp preview"
+    "fmt": "vp fmt",
+    "data:fetch": "node scripts/fetch-sources.mjs",
+    "data:build": "node scripts/build-data.mjs"
   },
   "dependencies": {
     "@pixi/3d": "^0.1.0",
@@ -36,5 +40,8 @@
       "version": "12.21.0",
       "onFail": "download"
     }
+  },
+  "engines": {
+    "node": ">=26"
   }
 }

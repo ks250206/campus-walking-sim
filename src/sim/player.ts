@@ -109,8 +109,8 @@ export class Player {
       const k = 1 - Math.exp(-dt * 8);
       const cp = Math.cos(this.pitch);
       const fy = Math.sin(this.pitch) * input.forward + input.up;
-      this.vx += (mx * cp * speed + (cos * input.strafe * (1 - cp)) * speed - this.vx) * k;
-      this.vz += (mz * cp * speed + (-sin * input.strafe * (1 - cp)) * speed - this.vz) * k;
+      this.vx += (mx * cp * speed + cos * input.strafe * (1 - cp) * speed - this.vx) * k;
+      this.vz += (mz * cp * speed + -sin * input.strafe * (1 - cp) * speed - this.vz) * k;
       this.vy += (fy * speed - this.vy) * k;
       this.x += this.vx * dt;
       this.y += this.vy * dt;

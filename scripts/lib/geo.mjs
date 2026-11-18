@@ -14,7 +14,7 @@ export const FAR_RADIUS = 2600;
 
 // GRS80 楕円体での、原点緯度における 1 度あたりのメートル数
 const A = 6378137;
-const E2 = 0.00669438002290;
+const E2 = 0.0066943800229;
 const phi = (ORIGIN.lat * Math.PI) / 180;
 const W = Math.sqrt(1 - E2 * Math.sin(phi) ** 2);
 const M_PER_DEG_LAT = ((A * (1 - E2)) / W ** 3) * (Math.PI / 180);
@@ -77,7 +77,7 @@ export function meshCodesFor(box) {
       codes.add(meshCode3(Math.min(lat, box.maxLat), Math.min(lon, box.maxLon)));
     }
   }
-  return [...codes].sort();
+  return [...codes].sort((a, b) => a.localeCompare(b));
 }
 
 // ---- 2D ポリゴン関連 ----

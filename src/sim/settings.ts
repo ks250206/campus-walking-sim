@@ -80,28 +80,32 @@ function clamp(v: number, lo: number, hi: number): number {
 let current = load();
 const listeners = new Set<() => void>();
 
+function setSettings(patch: Partial<Settings>): void {
+  current = { ...current, ...patch };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
+  } catch {
+    // 保存できなくても動作には影響しない (プライベートブラウズなど)
+  }
+  for (const l of listeners) l();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+const getSettings = (): Settings => current;
+
 export const settingsStore = {
-  get: (): Settings => current,
-  set(patch: Partial<Settings>): void {
-    current = { ...current, ...patch };
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
-    } catch {
-      // 保存できなくても動作には影響しない (プライベートブラウズなど)
-    }
-    for (const l of listeners) l();
-  },
-  reset(): void {
-    this.set({ ...DEFAULT_SETTINGS });
-  },
-  subscribe(listener: () => void): () => void {
-    listeners.add(listener);
-    return () => listeners.delete(listener);
-  },
+  get: getSettings,
+  set: setSettings,
+  reset: (): void => setSettings({ ...DEFAULT_SETTINGS }),
+  subscribe,
 };
 
 export function useSettings(): Settings {
-  return useSyncExternalStore(settingsStore.subscribe, settingsStore.get);
+  return useSyncExternalStore(subscribe, getSettings);
 }
 
 /** 設定の解像度から、CSS 1 ピクセルあたりの描画ピクセル数を求める */

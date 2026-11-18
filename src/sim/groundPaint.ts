@@ -264,11 +264,7 @@ function offsetPolyline(p: number[], d: number): number[] {
   return out;
 }
 
-function nearestRoad(
-  roads: RoadData[],
-  x: number,
-  z: number,
-): { road: RoadData; dist: number; dirX: number; dirZ: number } | null {
+function nearestRoad(roads: RoadData[], x: number, z: number): { road: RoadData; dist: number; dirX: number; dirZ: number } | null {
   let best: { road: RoadData; dist: number; dirX: number; dirZ: number } | null = null;
   for (const road of roads) {
     if (!VEHICLE.has(road.k)) continue;

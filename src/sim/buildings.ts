@@ -1,6 +1,6 @@
 import { Container3D, Material3D, Mesh3D } from '@pixi/3d';
 import earcut from 'earcut';
-import { buildingStyleFor } from './buildingStyles';
+import { MINT_ROOF_COLOR, buildingStyleFor, hasMintRoof } from './buildingStyles';
 import type { CollisionWorld } from './collision';
 import { FACADE_STYLES, createFacadeMaterial } from './facade';
 import type { FacadeStyle, FacadeStyleId } from './facade';
@@ -144,9 +144,13 @@ export function buildBuildings(data: CampusData, hf: Heightfield, collision: Col
         const tz = (z1 - z0) / len;
         const nx = -tz;
         const nz = tx;
-        const plain = len < 1.7;
+        // 妻側 (建物の短辺方向に走る壁) は、様式によって窓なし・ブレース付きにする
+        const across = Math.abs(tx * obb.ax + tz * obb.az) < 0.5;
+        const isEnd = style.ends !== 'same' && across && len > 5 && r === ring;
+        const plain = len < 1.1 || isEnd;
+        const flag = isEnd && style.ends === 'brace' && len > 12 ? 2 : plain ? 1 : 0;
         const bays = plain ? 1 : Math.max(1, Math.round(len / style.bayW));
-        mb.setData(len / bays, seed, wallTop - b.b, plain ? 1 : 0);
+        mb.setData(len / bays, seed, wallTop - b.b, flag);
         const v0 = bottom - b.b;
         const v1 = wallTop - b.b;
         const a = mb.vertex(x0, bottom, z0, nx, 0, nz, 0, v0);
@@ -200,7 +204,7 @@ function addFlatRoof(
 ): void {
   const parapet = area > 40 ? style.parapet : 0;
   const roofY = b.t - parapet;
-  const [rr, rg, rb] = linearRgb(style.roof);
+  const [rr, rg, rb] = linearRgb(hasMintRoof(b) ? MINT_ROOF_COLOR : style.roof);
   const tone = 0.88 + rand() * 0.2;
   roofs.color(rr * tone, rg * tone, rb * tone, 1);
 
