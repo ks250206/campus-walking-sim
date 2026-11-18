@@ -5,6 +5,7 @@ import { Application, RendererType } from 'pixi.js';
 import type { WebGLRenderer } from 'pixi.js';
 import { buildBuildings } from './buildings';
 import { CollisionWorld } from './collision';
+import { campusNote } from './buildingStyles';
 import { Heightfield, signedDistanceToPolygon } from './heightfield';
 import { Player } from './player';
 import type { PlayerInput } from './player';
@@ -31,6 +32,8 @@ export interface HudState {
   /** 標高 (m) */
   elevation: number;
   place: string;
+  /** 現在地の補足 (棟の階数や主な施設) */
+  placeNote: string;
   flying: boolean;
   running: boolean;
 }
@@ -104,6 +107,7 @@ export class Simulator {
   private hudTimer = 0;
   private fpsSmooth = 60;
   private place = '';
+  private placeNote = '';
   private placeTimer = 0;
   private showcase = true;
   private showcaseAngle = 0.6;
@@ -478,6 +482,7 @@ export class Simulator {
     if (this.placeTimer <= 0) {
       this.placeTimer = 0.4;
       this.place = this.describePlace(p.x, p.z);
+      this.placeNote = campusNote(this.place);
     }
     if (this.hudTimer <= 0 && this.onHud) {
       this.hudTimer = 0.1;
@@ -488,6 +493,7 @@ export class Simulator {
         heading: p.heading,
         elevation: p.y + 50,
         place: this.place,
+        placeNote: this.placeNote,
         flying: p.flying,
         running: input.run && p.speed > 2.5,
       });

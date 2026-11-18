@@ -30,6 +30,7 @@ export function Hud({
 
       <div className={`absolute left-4 top-4 space-y-1 [text-shadow:0_1px_3px_rgba(0,0,0,0.85)] ${touch ? 'right-44' : ''}`}>
         <div className={touch ? 'text-sm font-semibold' : 'text-lg font-semibold'}>{hud.place}</div>
+        {hud.placeNote && <div className="text-xs text-white/90">{hud.placeNote}</div>}
         <div className="text-xs text-white/85">
           {compassLabel(hud.heading)} {Math.round(hud.heading)}° ・ 標高 {hud.elevation.toFixed(0)} m
           {hud.flying && <span className="ml-2 rounded bg-sky-500/80 px-1.5 py-0.5 text-[10px] font-semibold">飛行モード</span>}

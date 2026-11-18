@@ -2,7 +2,7 @@ import { Container3D, Material3D, Mesh3D } from '@pixi/3d';
 import earcut from 'earcut';
 import polygonClipping from 'polygon-clipping';
 import type { Pair, Polygon } from 'polygon-clipping';
-import { MINT_ROOF_COLOR, buildingStyleFor, hasMintRoof } from './buildingStyles';
+import { MINT_ROOF_COLOR, buildingStyleFor, hasMintRoof, officialFloors } from './buildingStyles';
 import type { CollisionWorld } from './collision';
 import type { PassageSpec } from './extras';
 import { FACADE_STYLES, createFacadeMaterial } from './facade';
@@ -130,6 +130,25 @@ export function buildBuildings(
     const wallTop = pitched ? b.t - rise * 0.5 : b.t;
     const bottom = Math.min(b.b, b.g[0]) - 1.2;
 
+    // 階数が分かっている棟は、その階数がちょうど収まるように外壁の縦の目盛りを伸縮する
+    // (シェーダは「1 階の階高 + 基準階の階高 × n」で窓を並べる)
+    const floors = officialFloors(b, height);
+    let vScale = 1;
+    if (floors) {
+      const groundFloors = style.groundH > 0 ? Math.max(1, Math.round(style.groundH / style.floorH)) : 0;
+      const upper = Math.max(0, floors - groundFloors);
+      const target = style.groundH + upper * style.floorH + style.parapet + style.floorH * 0.12;
+      vScale = Math.min(1.8, Math.max(0.6, target / Math.max(1, wallTop - b.b)));
+    }
+    /** 高さ y (地盤から) に最も近い、階の境目の高さ */
+    const floorLineNear = (y: number): number => {
+      if (!floors) return y;
+      const v = y * vScale;
+      const k = Math.max(0, Math.round((v - style.groundH) / style.floorH));
+      const line = (style.groundH + k * style.floorH) / vScale;
+      return Math.abs(line - y) < 1.5 ? line : y;
+    };
+
     const wallBase = style.walls[Math.floor(rand() * style.walls.length)];
     const tone = 0.93 + rand() * 0.12;
     const [wr, wg, wbl] = linearRgb(wallBase);
@@ -169,9 +188,9 @@ export function buildBuildings(
           const plain = len < 1.1 || isEnd || cut;
           const flag = isEnd && style.ends === 'brace' && len > 12 ? 2 : plain ? 1 : 0;
           const bays = plain ? 1 : Math.max(1, Math.round(len / style.bayW));
-          mb.setData(len / bays, seed, wallTop - b.b, flag);
-          const v0 = from - b.b;
-          const v1 = wallTop - b.b;
+          mb.setData(len / bays, seed, (wallTop - b.b) * vScale, flag);
+          const v0 = (from - b.b) * vScale;
+          const v1 = (wallTop - b.b) * vScale;
           const a = mb.vertex(x0, from, z0, nx, 0, nz, 0, v0);
           const bb = mb.vertex(x1, from, z1, nx, 0, nz, bays, v0);
           const c = mb.vertex(x1, wallTop, z1, nx, 0, nz, bays, v1);
@@ -192,7 +211,8 @@ export function buildBuildings(
       }
     }
     if (split && passage) {
-      const soffitY = b.b + passage.clear;
+      // 上に載る階の床下は、階の境目にそろえる
+      const soffitY = b.b + floorLineNear(passage.clear);
       for (const part of split.over) {
         addWalls(part, soffitY, true);
         addFlatRoof(roofs, part.ring, part.holes, b, style, 0, height, obb, rand, wallColor, isCut);

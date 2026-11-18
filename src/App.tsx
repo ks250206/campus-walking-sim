@@ -33,7 +33,7 @@ const TOUCH_CONTROLS: [string, string][] = [
   ['メニュー', '一時停止 / 入口に戻る'],
 ];
 
-const INITIAL_HUD: HudState = { fps: 0, x: 0, z: 0, heading: 0, elevation: 0, place: '', flying: false, running: false };
+const INITIAL_HUD: HudState = { fps: 0, x: 0, z: 0, heading: 0, elevation: 0, place: '', placeNote: '', flying: false, running: false };
 
 export default function App() {
   const hostRef = useRef<HTMLDivElement>(null);
