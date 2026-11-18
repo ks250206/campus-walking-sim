@@ -987,6 +987,9 @@ function addJ23Entrance(mb: MeshBuilder, signMesh: MeshBuilder, signs: SignAtlas
   }
   box(1.91, 0, 0, 4.35, 2.7, 0.13, 0x929da0);
   for (const right of [-1.53, -0.51, 0.51, 1.53]) box(2, right, 0.12, 0.96, 2.43, 0.07, 0x334b53);
+  // ガラス扉の注意帯と、写真で戸先側に見える掲示。
+  box(2.043, 0, 0.94, 4.05, 0.045, 0.015, 0xb4bdbb);
+  for (const right of [-0.74, 1.38]) box(2.045, right, 1.45, 0.21, 0.3, 0.018, 0xe0e1dc);
   box(2.83, 0, 2.93, 5.3, 0.36, 2.5, 0xc2c7ca);
   for (const right of [-2.54, 2.54]) {
     box(3.92, right, 0, 0.13, 2.96, 0.13, 0xc8cdd0);
