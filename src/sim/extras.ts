@@ -1,6 +1,7 @@
 import { okabeHedge } from './gateApproach';
 import type { Heightfield } from './heightfield';
 import { pointInPolygon } from './heightfield';
+import { addJ23Approach } from './j23Approach';
 import type { CampusJson, RoadData } from './types';
 
 /**
@@ -303,18 +304,12 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
   const outZ = G2_IN.z + G2_AXIS.z * G2_DEPTH;
   const stairTopY = 20.2;
 
-  // 坂: G1 棟の東の角から、芝の斜面を上ってトンネルの入口へ
-  const slope = [20.18, 96.3, 22, 112, 26, 126, 36, 138, 45, 140.8, TUNNEL_W.x, TUNNEL_W.z];
-  const slopeY: number[] = [];
-  for (let i = 0; i < slope.length; i += 2) slopeY.push(hf.heightAt(slope[i], slope[i + 1]));
-  slopeY[slopeY.length - 2] = TUNNEL_W.y - 0.05;
-  slopeY[slopeY.length - 1] = TUNNEL_W.y;
+  const j23Clearings = addJ23Approach(json, hf, TUNNEL_W);
 
   // ---- 道路データに通路を足す (地面の舗装・地図・街灯に反映される)
   const add = (k: string, w: number, p: number[], extra: Partial<RoadData> = {}): void => {
     json.roads.push({ k, w, p, c: 1, ...extra });
   };
-  add('footway', 2.6, slope);
   add('footway', 2.4, [TUNNEL_W.x, TUNNEL_W.z, TUNNEL_E.x, TUNNEL_E.z], { tn: 1, n: '歩行者トンネル' });
   add('footway', 2.6, [TUNNEL_E.x, TUNNEL_E.z, JUNCTION.x, JUNCTION.z]);
   add('footway', 3.6, [JUNCTION.x, JUNCTION.z, topX, topZ]);
@@ -327,19 +322,6 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
   }
 
   // ---- 地形を整える (トンネルの掘り込みは、ほかの整形が済んでから最後に行う)
-  for (let i = 0; i + 3 < slope.length; i += 2) {
-    hf.shapeCorridor({
-      ax: slope[i],
-      az: slope[i + 1],
-      ay: slopeY[i / 2],
-      bx: slope[i + 2],
-      bz: slope[i + 3],
-      by: slopeY[i / 2 + 1],
-      halfWidth: 1.5,
-      feather: 2.5,
-      mode: 'set',
-    });
-  }
   hf.shapeCorridor({
     ax: TUNNEL_E.x,
     az: TUNNEL_E.z,
@@ -463,7 +445,7 @@ export function applyCampusExtras(json: CampusJson, hf: Heightfield): CampusExtr
     ],
     strips,
     clearings: [
-      { p: slope, radius: 2.8 },
+      ...j23Clearings,
       { p: [TUNNEL_W.x - tx * 6, TUNNEL_W.z - tz * 6, TUNNEL_W.x, TUNNEL_W.z], radius: 3.2 },
       { p: [TUNNEL_E.x, TUNNEL_E.z, JUNCTION.x, JUNCTION.z, bottomX, bottomZ, G2_IN.x, G2_IN.z], radius: 3.6 },
     ],

@@ -571,17 +571,17 @@ const facadeBit: ShaderBit = {
     col = mix(col, wallCol * 1.06, slabEdge);
 
     // 妻面の X 字ブレース (4 層ごとに 1 組) と小さな四角窓
-    float xm = uv.x * bayW;
+    float braceBase = gH * 0.5; // 2階玄関の高さから立ち上がる
     float cellH = fH0 * 4.0;
-    float by = fract(max(uv.y - gH, 0.0) / cellH);
+    float by = fract(max(uv.y - braceBase, 0.0) / cellH);
     float bxn = uv.x;
     float diag = min(abs(bxn - by), abs(bxn + by - 1.0)) * min(bayW, cellH) * 0.72;
-    float braceAmt = (1.0 - smoothstep(0.42 - aa, 0.42 + aa, diag)) * braced * step(gH, uv.y) * step(uv.y, wallH - material.fDims.w);
-    float sqx = abs(fract(xm / 3.6) - 0.5) * 3.6;
+    float braceAmt = (1.0 - smoothstep(0.42 - aa, 0.42 + aa, diag)) * braced * step(braceBase, uv.y) * step(uv.y, wallH - material.fDims.w);
+    float sqx = abs(uv.x - 0.5) * bayW; // 妻面中央に縦に並ぶ小窓
     float sqy = abs(fy - 0.55) * fH;
-    float dSq = 0.55 - max(sqx, sqy);
+    float dSq = min(0.73 - sqx, 0.48 - sqy);
     float sqWin = smoothstep(-aa, aa, dSq) * braced * fits * (1.0 - braceAmt);
-    float sqFrame = (1.0 - smoothstep(0.05 - aa, 0.05 + aa, dSq)) * sqWin;
+    float sqFrame = (1.0 - smoothstep(0.05 - aa, 0.05 + aa, min(dSq, sqx))) * sqWin;
     col = mix(col, vec3(0.86, 0.86, 0.85), braceAmt);
 
     // タイル目地 (遠くでは消してモアレを防ぐ)
