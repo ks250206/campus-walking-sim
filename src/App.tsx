@@ -22,7 +22,7 @@ const CONTROLS: [string, string][] = [
   ['M', '全体図 / 建物へのファストトラベル'],
   ['F', '飛行モード (E / Q で上昇・下降)'],
   ['R', '入口 (すずかけ門) に戻る'],
-  ['Esc', 'メニューを開く'],
+  ['Esc', '一時停止 / 歩行を再開'],
 ];
 
 const TOUCH_CONTROLS: [string, string][] = [
@@ -47,6 +47,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('main');
   const [hud, setHud] = useState<HudState>(INITIAL_HUD);
   const [touch, setTouch] = useState(() => window.matchMedia('(pointer: coarse)').matches);
+  const [lockFailed, setLockFailed] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
   const [credits, setCredits] = useState<SourceCredit[]>([]);
 
@@ -107,20 +108,39 @@ export default function App() {
     else sim.releaseLock();
   }, [sim, touch]);
 
-  const closeMap = useCallback(() => {
-    if (!sim) return;
-    if (touch) {
-      sim.startTouch();
-      setPhase('playing');
-    } else {
-      sim.requestLock();
-    }
-  }, [sim, touch]);
+  const resume = useCallback(
+    (useTouch: boolean) => {
+      if (!sim) return;
+      setLockFailed(false);
+      if (useTouch) {
+        sim.startTouch();
+        setPhase('playing');
+      } else {
+        void sim.requestLock().catch(() => {
+          setLockFailed(true);
+          setTab('main');
+          setPhase((current) => (current === 'map' ? 'paused' : current));
+        });
+      }
+    },
+    [sim],
+  );
+
+  const closeMap = useCallback(() => resume(touch), [resume, touch]);
 
   useEffect(() => {
-    if (touch || (phase !== 'playing' && phase !== 'map')) return;
+    if (phase !== 'paused' && (touch || (phase !== 'playing' && phase !== 'map'))) return;
     const onKey = (e: KeyboardEvent): void => {
-      if (e.repeat || e.target instanceof HTMLSelectElement) return;
+      if (e.repeat || e.defaultPrevented) return;
+      if (phase === 'paused') {
+        if (e.code === 'Escape') {
+          e.preventDefault();
+          setTab('main');
+          resume(touch);
+        }
+        return;
+      }
+      if (e.target instanceof HTMLSelectElement) return;
       if (e.code === 'KeyM') {
         if (phase === 'map') closeMap();
         else openMap();
@@ -130,7 +150,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [phase, touch, openMap, closeMap]);
+  }, [phase, touch, openMap, closeMap, resume]);
 
   const travel = (destination: TravelDestination): void => {
     if (!sim) return;
@@ -145,13 +165,8 @@ export default function App() {
     sim.setShowcase(false);
     setTab('main');
     setShowHelp(true);
-    if (useTouch) {
-      setTouch(true);
-      sim.startTouch();
-      setPhase('playing');
-    } else {
-      sim.requestLock();
-    }
+    if (useTouch) setTouch(true);
+    resume(useTouch);
   };
 
   const pauseTouch = useCallback(() => {
@@ -177,6 +192,7 @@ export default function App() {
     sim.respawn();
     sim.setShowcase(true);
     setTab('main');
+    setLockFailed(false);
     setPhase('title');
   }, [sim]);
 
@@ -276,10 +292,15 @@ export default function App() {
                   >
                     {phase === 'paused' ? '歩行を再開する' : 'キャンパスを歩く'}
                   </button>
+                  {lockFailed && (
+                    <p role="status" className="text-center text-sm text-amber-200">
+                      マウス操作を有効にするには、上のボタンをクリックしてください。
+                    </p>
+                  )}
                   <p className="text-center text-xs text-white/55">
                     {touch
                       ? '左下のスティックで移動し、画面をドラッグして見回します。右上のボタンでメニューに戻れます。'
-                      : 'クリックするとマウスで視点を動かせるようになります。Esc でいつでもこのメニューに戻れます。'}
+                      : 'クリックするとマウスで視点を動かせるようになります。Esc で一時停止し、もう一度 Esc で歩行を再開します。'}
                   </p>
                   {phase === 'paused' && (
                     <button

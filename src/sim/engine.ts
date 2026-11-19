@@ -375,16 +375,16 @@ export class Simulator {
   }
 
   /** マウスを捕まえて操作を始める (ユーザー操作のイベント内で呼ぶこと) */
-  requestLock(): void {
+  async requestLock(): Promise<void> {
     const canvas = this.app.canvas as HTMLCanvasElement & {
       requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void;
     };
     try {
       // 可能なら OS のマウス加速を外した生の移動量を使う
-      const result = canvas.requestPointerLock({ unadjustedMovement: true });
-      if (result && typeof result.catch === 'function') result.catch(() => void canvas.requestPointerLock());
-    } catch {
-      void canvas.requestPointerLock();
+      await canvas.requestPointerLock({ unadjustedMovement: true });
+    } catch (error) {
+      if (!(error instanceof TypeError || (error instanceof DOMException && error.name === 'NotSupportedError'))) throw error;
+      await canvas.requestPointerLock();
     }
   }
 
