@@ -298,7 +298,9 @@ export default function App() {
                   </ul>
                 </div>
               )}
-              {tab === 'settings' && <SettingsPanel getRenderSize={getRenderSize} />}
+              {tab === 'settings' && (
+                <SettingsPanel getRenderSize={getRenderSize} supportedMsaa={sim?.supportedMsaa(settings.ambientOcclusion) ?? []} />
+              )}
               {tab === 'controls' && (
                 <table className="w-full text-sm">
                   <tbody>

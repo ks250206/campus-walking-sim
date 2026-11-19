@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { DEFAULT_SETTINGS, FOV_RANGE, RESOLUTION_OPTIONS, SENSITIVITY_RANGE, settingsStore, useSettings } from '../sim/settings';
-import type { Antialiasing, ResolutionPreset, Settings, ShadowLevel } from '../sim/settings';
+import {
+  DEFAULT_SETTINGS,
+  effectiveSamples,
+  FOV_RANGE,
+  FPS_LIMITS,
+  RESOLUTION_OPTIONS,
+  SENSITIVITY_RANGE,
+  settingsStore,
+  useSettings,
+} from '../sim/settings';
+import type { Antialiasing, FpsLimit, MsaaSamples, ResolutionPreset, ShadowLevel } from '../sim/settings';
 
 const SHADOW_OPTIONS: { value: ShadowLevel; label: string }[] = [
   { value: 'off', label: 'なし' },
@@ -42,7 +51,13 @@ const formatTime = (h: number): string => {
 const horizontalFov = (vertical: number): number =>
   Math.round((2 * Math.atan(Math.tan((vertical * Math.PI) / 360) * (16 / 9)) * 180) / Math.PI);
 
-export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width: number; height: number } | undefined }) {
+export function SettingsPanel({
+  getRenderSize,
+  supportedMsaa,
+}: {
+  getRenderSize?: () => { width: number; height: number } | undefined;
+  supportedMsaa: readonly MsaaSamples[];
+}) {
   const s = useSettings();
   // 設定を反映したあとの実際の描画サイズ (解像度を変えると 1 フレーム後に変わる)
   const [renderSize, setRenderSize] = useState(() => getRenderSize?.());
@@ -55,13 +70,9 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
       window.removeEventListener('resize', onResize);
     };
   }, [getRenderSize, s.resolution, s.antialiasing]);
-  const set = (patch: Partial<Settings>): void => {
-    const next = patch.antialiasing ?? s.antialiasing;
-    const needsReload = (s.antialiasing === 'msaa') !== (next === 'msaa');
-    settingsStore.set(patch);
-    // WebGL の MSAA はコンテキスト作成時にしか変更できない。
-    if (needsReload) window.location.reload();
-  };
+  const set = settingsStore.set;
+  const samples = effectiveSamples(s.msaaSamples, supportedMsaa);
+  const mode = s.antialiasing === 'msaa' && !samples ? 'off' : s.antialiasing;
   const selectClass =
     'w-full rounded-md border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400';
 
@@ -84,13 +95,35 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
         </Row>
         <Row
           label="アンチエイリアス"
-          hint="MSAA の切り替え時は再読み込みします。SSAA は縦横2倍で描画するため負荷が高く、GPUの上限により倍率が制限されることがあります。"
+          hint="SSAA は縦横2倍で描画して選択した解像度に縮小します。GPU の上限により倍率が制限されることがあります。"
         >
-          <select className={selectClass} value={s.antialiasing} onChange={(e) => set({ antialiasing: e.target.value as Antialiasing })}>
+          <select className={selectClass} value={mode} onChange={(e) => set({ antialiasing: e.target.value as Antialiasing })}>
             <option value="off">なし</option>
-            <option value="msaa">MSAA（輪郭を平滑化）</option>
+            <option value="msaa" disabled={!samples}>
+              MSAA{samples ? '（輪郭を平滑化）' : '（現在の描画設定では非対応）'}
+            </option>
             <option value="fxaa">FXAA（軽量）</option>
             <option value="ssaa">SSAA（高画質・高負荷）</option>
+          </select>
+        </Row>
+        {mode === 'msaa' && (
+          <Row label="MSAA 倍率" hint="現在の端末と描画設定で使える倍率です。">
+            <select className={selectClass} value={samples} onChange={(e) => set({ msaaSamples: Number(e.target.value) as MsaaSamples })}>
+              {supportedMsaa.map((n) => (
+                <option key={n} value={n}>
+                  {n}x
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
+        <Row label="FPS 上限" hint="制限なしでは画面のリフレッシュレートに合わせて描画します。">
+          <select className={selectClass} value={s.fpsLimit} onChange={(e) => set({ fpsLimit: Number(e.target.value) as FpsLimit })}>
+            {FPS_LIMITS.map((n) => (
+              <option key={n} value={n}>
+                {n ? `${n} FPS` : '制限なし'}
+              </option>
+            ))}
           </select>
         </Row>
         <Row

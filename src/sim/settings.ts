@@ -4,11 +4,22 @@ export type ResolutionPreset = 'native' | '2160' | '1440' | '1080' | '900' | '72
 export type ShadowLevel = 'off' | 'low' | 'medium' | 'high';
 export type Antialiasing = 'off' | 'msaa' | 'fxaa' | 'ssaa';
 
+export const MSAA_SAMPLES = [2, 4, 8] as const;
+export type MsaaSamples = (typeof MSAA_SAMPLES)[number];
+export const FPS_LIMITS = [0, 30, 60, 90, 120, 144, 165, 240] as const;
+export type FpsLimit = (typeof FPS_LIMITS)[number];
+
+export function effectiveSamples(requested: MsaaSamples, supported: readonly MsaaSamples[]): MsaaSamples | undefined {
+  return supported.findLast((samples) => samples <= requested) ?? supported[0];
+}
+
 export interface Settings {
   /** 描画解像度 (縦のピクセル数。横は画面の縦横比に合わせる) */
   resolution: ResolutionPreset;
   /** アンチエイリアス方式 */
   antialiasing: Antialiasing;
+  msaaSamples: MsaaSamples;
+  fpsLimit: FpsLimit;
   /** 視点操作の感度 (1 が標準) */
   mouseSensitivity: number;
   /** 上下の視点操作を反転 */
@@ -35,6 +46,8 @@ const prefersTouch = window.matchMedia('(pointer: coarse)').matches;
 export const DEFAULT_SETTINGS: Settings = {
   resolution: prefersTouch ? '540' : 'native',
   antialiasing: 'msaa',
+  msaaSamples: 4,
+  fpsLimit: 0,
   mouseSensitivity: 1,
   invertY: false,
   fov: 68,
@@ -74,6 +87,8 @@ function load(): Settings {
     merged.timeOfDay = clamp(Number(merged.timeOfDay), 5, 19);
     if (!RESOLUTION_OPTIONS.some((o) => o.value === merged.resolution)) merged.resolution = 'native';
     if (!['off', 'msaa', 'fxaa', 'ssaa'].includes(merged.antialiasing)) merged.antialiasing = DEFAULT_SETTINGS.antialiasing;
+    if (!MSAA_SAMPLES.includes(merged.msaaSamples)) merged.msaaSamples = DEFAULT_SETTINGS.msaaSamples;
+    if (!FPS_LIMITS.includes(merged.fpsLimit)) merged.fpsLimit = DEFAULT_SETTINGS.fpsLimit;
     if (!['off', 'low', 'medium', 'high'].includes(merged.shadows)) merged.shadows = 'medium';
     return merged;
   } catch {
