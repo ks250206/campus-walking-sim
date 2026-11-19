@@ -54,7 +54,7 @@ export const RESOLUTION_OPTIONS: { value: ResolutionPreset; label: string }[] = 
 ];
 
 export const FOV_RANGE = { min: 40, max: 110 };
-export const SENSITIVITY_RANGE = { min: 0.1, max: 4 };
+export const SENSITIVITY_RANGE = { min: 0.1, max: 20 };
 
 const STORAGE_KEY = 'campus-walking-sim.settings.v1';
 
