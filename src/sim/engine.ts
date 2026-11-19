@@ -140,7 +140,7 @@ export class Simulator {
     await app.init({
       preference: 'webgl',
       resizeTo: host,
-      antialias: true,
+      antialias: settings.antialiasing === 'msaa',
       autoDensity: true,
       resolution: resolutionScale(settings.resolution, host.clientHeight || window.innerHeight, window.devicePixelRatio || 1),
       backgroundColor: 0xbfd0df,
@@ -223,7 +223,7 @@ export class Simulator {
 
     view.camera.fov = settings.fov;
 
-    if (force || prev.resolution !== settings.resolution) this.applyResolution();
+    if (force || prev.resolution !== settings.resolution || prev.antialiasing !== settings.antialiasing) this.applyResolution();
 
     if (force || prev.shadows !== settings.shadows) {
       this.sky.setShadows(settings.shadows !== 'off');
@@ -249,12 +249,15 @@ export class Simulator {
       this.sky.setFogDensity(0.83 / range);
     }
 
-    if (force || prev.ambientOcclusion !== settings.ambientOcclusion) {
+    if (force || prev.ambientOcclusion !== settings.ambientOcclusion || prev.antialiasing !== settings.antialiasing) {
       const passes: Pass3D[] = [];
       if (settings.ambientOcclusion && this.canRenderFloat()) {
         this.ssao ??= new SsaoEffect({ radius: 0.9, intensity: 1.1, fadeDistance: [60, 120] });
+        passes.push(this.ssao);
+      }
+      if (settings.antialiasing === 'fxaa') {
         this.fxaa ??= new FxaaEffect();
-        passes.push(this.ssao, this.fxaa);
+        passes.push(this.fxaa);
       }
       view.passes = passes;
     }
@@ -271,9 +274,12 @@ export class Simulator {
     const host = this.app.canvas.parentElement;
     const w = host?.clientWidth || window.innerWidth;
     const h = host?.clientHeight || window.innerHeight;
-    const scale = resolutionScale(this.settings.resolution, h, window.devicePixelRatio || 1);
+    const scale =
+      resolutionScale(this.settings.resolution, h, window.devicePixelRatio || 1) * (this.settings.antialiasing === 'ssaa' ? 2 : 1);
     // GPU のテクスチャ上限を超えないようにする
-    const maxDim = 8192;
+    const renderer = this.app.renderer;
+    const gl = renderer.type === RendererType.WEBGL ? (renderer as WebGLRenderer).gl : null;
+    const maxDim = gl ? Math.min(8192, gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)) : 8192;
     const safe = Math.min(scale, maxDim / Math.max(w, h));
     this.app.renderer.resize(w, h, safe);
   }

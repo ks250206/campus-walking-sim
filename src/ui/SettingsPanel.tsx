@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { DEFAULT_SETTINGS, FOV_RANGE, RESOLUTION_OPTIONS, SENSITIVITY_RANGE, settingsStore, useSettings } from '../sim/settings';
-import type { ResolutionPreset, Settings, ShadowLevel } from '../sim/settings';
+import type { Antialiasing, ResolutionPreset, Settings, ShadowLevel } from '../sim/settings';
 
 const SHADOW_OPTIONS: { value: ShadowLevel; label: string }[] = [
   { value: 'off', label: 'なし' },
@@ -54,8 +54,14 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
       cancelAnimationFrame(id);
       window.removeEventListener('resize', onResize);
     };
-  }, [getRenderSize, s.resolution]);
-  const set = (patch: Partial<Settings>): void => settingsStore.set(patch);
+  }, [getRenderSize, s.resolution, s.antialiasing]);
+  const set = (patch: Partial<Settings>): void => {
+    const next = patch.antialiasing ?? s.antialiasing;
+    const needsReload = (s.antialiasing === 'msaa') !== (next === 'msaa');
+    settingsStore.set(patch);
+    // WebGL の MSAA はコンテキスト作成時にしか変更できない。
+    if (needsReload) window.location.reload();
+  };
   const selectClass =
     'w-full rounded-md border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400';
 
@@ -74,6 +80,17 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
                 {o.label}
               </option>
             ))}
+          </select>
+        </Row>
+        <Row
+          label="アンチエイリアス"
+          hint="MSAA の切り替え時は再読み込みします。SSAA は縦横2倍で描画するため負荷が高く、GPUの上限により倍率が制限されることがあります。"
+        >
+          <select className={selectClass} value={s.antialiasing} onChange={(e) => set({ antialiasing: e.target.value as Antialiasing })}>
+            <option value="off">なし</option>
+            <option value="msaa">MSAA（輪郭を平滑化）</option>
+            <option value="fxaa">FXAA（軽量）</option>
+            <option value="ssaa">SSAA（高画質・高負荷）</option>
           </select>
         </Row>
         <Row
@@ -153,7 +170,7 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
 
       <button
         type="button"
-        onClick={() => settingsStore.set({ ...DEFAULT_SETTINGS })}
+        onClick={() => set({ ...DEFAULT_SETTINGS })}
         className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10"
       >
         初期設定に戻す

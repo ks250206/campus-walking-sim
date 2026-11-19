@@ -2,10 +2,13 @@ import { useSyncExternalStore } from 'react';
 
 export type ResolutionPreset = 'native' | '2160' | '1440' | '1080' | '900' | '720' | '540';
 export type ShadowLevel = 'off' | 'low' | 'medium' | 'high';
+export type Antialiasing = 'off' | 'msaa' | 'fxaa' | 'ssaa';
 
 export interface Settings {
   /** 描画解像度 (縦のピクセル数。横は画面の縦横比に合わせる) */
   resolution: ResolutionPreset;
+  /** アンチエイリアス方式 */
+  antialiasing: Antialiasing;
   /** 視点操作の感度 (1 が標準) */
   mouseSensitivity: number;
   /** 上下の視点操作を反転 */
@@ -31,6 +34,7 @@ const prefersTouch = window.matchMedia('(pointer: coarse)').matches;
 
 export const DEFAULT_SETTINGS: Settings = {
   resolution: prefersTouch ? '540' : 'native',
+  antialiasing: 'msaa',
   mouseSensitivity: 1,
   invertY: false,
   fov: 68,
@@ -69,6 +73,7 @@ function load(): Settings {
     merged.visibility = clamp(Number(merged.visibility), 0, 1);
     merged.timeOfDay = clamp(Number(merged.timeOfDay), 5, 19);
     if (!RESOLUTION_OPTIONS.some((o) => o.value === merged.resolution)) merged.resolution = 'native';
+    if (!['off', 'msaa', 'fxaa', 'ssaa'].includes(merged.antialiasing)) merged.antialiasing = DEFAULT_SETTINGS.antialiasing;
     if (!['off', 'low', 'medium', 'high'].includes(merged.shadows)) merged.shadows = 'medium';
     return merged;
   } catch {
