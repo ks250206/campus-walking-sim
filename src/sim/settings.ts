@@ -2,12 +2,27 @@ import { useSyncExternalStore } from 'react';
 
 export type ResolutionPreset = 'native' | '2160' | '1440' | '1080' | '900' | '720' | '540';
 export type ShadowLevel = 'off' | 'low' | 'medium' | 'high';
+export type Antialiasing = 'off' | 'msaa' | 'fxaa' | 'ssaa';
+
+export const MSAA_SAMPLES = [2, 4, 8] as const;
+export type MsaaSamples = (typeof MSAA_SAMPLES)[number];
+export const FPS_LIMITS = [0, 30, 60, 90, 120, 144, 165, 240] as const;
+export type FpsLimit = (typeof FPS_LIMITS)[number];
+
+export function effectiveSamples(requested: MsaaSamples, supported: readonly MsaaSamples[]): MsaaSamples | undefined {
+  return supported.findLast((samples) => samples <= requested) ?? supported[0];
+}
 
 export interface Settings {
   /** 描画解像度 (縦のピクセル数。横は画面の縦横比に合わせる) */
   resolution: ResolutionPreset;
-  /** 視点操作の感度 (1 が標準) */
+  /** アンチエイリアス方式 */
+  antialiasing: Antialiasing;
+  msaaSamples: MsaaSamples;
+  fpsLimit: FpsLimit;
+  /** マウス感度 (Source SDK 2013 の sensitivity と同じ単位) */
   mouseSensitivity: number;
+  touchSensitivity: number;
   /** 上下の視点操作を反転 */
   invertY: boolean;
   /** 垂直視野角 (度) */
@@ -31,7 +46,11 @@ const prefersTouch = window.matchMedia('(pointer: coarse)').matches;
 
 export const DEFAULT_SETTINGS: Settings = {
   resolution: prefersTouch ? '540' : 'native',
-  mouseSensitivity: 1,
+  antialiasing: 'msaa',
+  msaaSamples: 4,
+  fpsLimit: 0,
+  mouseSensitivity: 3,
+  touchSensitivity: 1,
   invertY: false,
   fov: 68,
   shadows: prefersTouch ? 'off' : 'medium',
@@ -56,19 +75,38 @@ export const RESOLUTION_OPTIONS: { value: ResolutionPreset; label: string }[] = 
 export const FOV_RANGE = { min: 40, max: 110 };
 export const SENSITIVITY_RANGE = { min: 0.1, max: 20 };
 
-const STORAGE_KEY = 'campus-walking-sim.settings.v1';
+const STORAGE_KEY = 'campus-walking-sim.settings.v2';
+const LEGACY_STORAGE_KEY = 'campus-walking-sim.settings.v1';
 
 function load(): Settings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const raw = saved ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<Settings>;
+    if (saved === null) {
+      // 旧版はマウスとタッチで一つの感度を共有していた。
+      parsed.touchSensitivity = parsed.mouseSensitivity;
+      if (Number(parsed.mouseSensitivity) === 1) parsed.mouseSensitivity = DEFAULT_SETTINGS.mouseSensitivity;
+    }
     const merged = { ...DEFAULT_SETTINGS, ...parsed };
     merged.fov = clamp(Number(merged.fov) || DEFAULT_SETTINGS.fov, FOV_RANGE.min, FOV_RANGE.max);
-    merged.mouseSensitivity = clamp(Number(merged.mouseSensitivity) || 1, SENSITIVITY_RANGE.min, SENSITIVITY_RANGE.max);
+    merged.mouseSensitivity = clamp(
+      Number(merged.mouseSensitivity) || DEFAULT_SETTINGS.mouseSensitivity,
+      SENSITIVITY_RANGE.min,
+      SENSITIVITY_RANGE.max,
+    );
+    merged.touchSensitivity = clamp(
+      Number(merged.touchSensitivity) || DEFAULT_SETTINGS.touchSensitivity,
+      SENSITIVITY_RANGE.min,
+      SENSITIVITY_RANGE.max,
+    );
     merged.visibility = clamp(Number(merged.visibility), 0, 1);
     merged.timeOfDay = clamp(Number(merged.timeOfDay), 5, 19);
     if (!RESOLUTION_OPTIONS.some((o) => o.value === merged.resolution)) merged.resolution = 'native';
+    if (!['off', 'msaa', 'fxaa', 'ssaa'].includes(merged.antialiasing)) merged.antialiasing = DEFAULT_SETTINGS.antialiasing;
+    if (!MSAA_SAMPLES.includes(merged.msaaSamples)) merged.msaaSamples = DEFAULT_SETTINGS.msaaSamples;
+    if (!FPS_LIMITS.includes(merged.fpsLimit)) merged.fpsLimit = DEFAULT_SETTINGS.fpsLimit;
     if (!['off', 'low', 'medium', 'high'].includes(merged.shadows)) merged.shadows = 'medium';
     return merged;
   } catch {

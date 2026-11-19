@@ -3,3 +3,5 @@ catalog:
   vite-plus: 1.7.0
 overrides:
   vite@*: 'catalog:'
+patchedDependencies:
+  pixi.js@8.23.0: patches/pixi.js@8.23.0.patch

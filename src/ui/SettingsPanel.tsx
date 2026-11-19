@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { DEFAULT_SETTINGS, FOV_RANGE, RESOLUTION_OPTIONS, SENSITIVITY_RANGE, settingsStore, useSettings } from '../sim/settings';
-import type { ResolutionPreset, Settings, ShadowLevel } from '../sim/settings';
+import {
+  DEFAULT_SETTINGS,
+  effectiveSamples,
+  FOV_RANGE,
+  FPS_LIMITS,
+  RESOLUTION_OPTIONS,
+  SENSITIVITY_RANGE,
+  settingsStore,
+  useSettings,
+} from '../sim/settings';
+import type { Antialiasing, FpsLimit, MsaaSamples, ResolutionPreset, ShadowLevel } from '../sim/settings';
 
 const SHADOW_OPTIONS: { value: ShadowLevel; label: string }[] = [
   { value: 'off', label: 'なし' },
@@ -42,7 +51,13 @@ const formatTime = (h: number): string => {
 const horizontalFov = (vertical: number): number =>
   Math.round((2 * Math.atan(Math.tan((vertical * Math.PI) / 360) * (16 / 9)) * 180) / Math.PI);
 
-export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width: number; height: number } | undefined }) {
+export function SettingsPanel({
+  getRenderSize,
+  supportedMsaa,
+}: {
+  getRenderSize?: () => { width: number; height: number } | undefined;
+  supportedMsaa: readonly MsaaSamples[];
+}) {
   const s = useSettings();
   // 設定を反映したあとの実際の描画サイズ (解像度を変えると 1 フレーム後に変わる)
   const [renderSize, setRenderSize] = useState(() => getRenderSize?.());
@@ -54,8 +69,10 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
       cancelAnimationFrame(id);
       window.removeEventListener('resize', onResize);
     };
-  }, [getRenderSize, s.resolution]);
-  const set = (patch: Partial<Settings>): void => settingsStore.set(patch);
+  }, [getRenderSize, s.resolution, s.antialiasing]);
+  const set = settingsStore.set;
+  const samples = effectiveSamples(s.msaaSamples, supportedMsaa);
+  const mode = s.antialiasing === 'msaa' && !samples ? 'off' : s.antialiasing;
   const selectClass =
     'w-full rounded-md border border-white/15 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-sky-400';
 
@@ -72,6 +89,39 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
             {RESOLUTION_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
                 {o.label}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row
+          label="アンチエイリアス"
+          hint="SSAA は縦横2倍で描画して選択した解像度に縮小します。GPU の上限により倍率が制限されることがあります。"
+        >
+          <select className={selectClass} value={mode} onChange={(e) => set({ antialiasing: e.target.value as Antialiasing })}>
+            <option value="off">なし</option>
+            <option value="msaa" disabled={!samples}>
+              MSAA{samples ? '（輪郭を平滑化）' : '（現在の描画設定では非対応）'}
+            </option>
+            <option value="fxaa">FXAA（軽量）</option>
+            <option value="ssaa">SSAA（高画質・高負荷）</option>
+          </select>
+        </Row>
+        {mode === 'msaa' && (
+          <Row label="MSAA 倍率" hint="現在の端末と描画設定で使える倍率です。">
+            <select className={selectClass} value={samples} onChange={(e) => set({ msaaSamples: Number(e.target.value) as MsaaSamples })}>
+              {supportedMsaa.map((n) => (
+                <option key={n} value={n}>
+                  {n}x
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
+        <Row label="FPS 上限" hint="制限なしでは画面のリフレッシュレートに合わせて描画します。">
+          <select className={selectClass} value={s.fpsLimit} onChange={(e) => set({ fpsLimit: Number(e.target.value) as FpsLimit })}>
+            {FPS_LIMITS.map((n) => (
+              <option key={n} value={n}>
+                {n ? `${n} FPS` : '制限なし'}
               </option>
             ))}
           </select>
@@ -131,17 +181,30 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
 
       <section className="space-y-4">
         <h3 className="text-xs font-semibold tracking-widest text-white/50">操作</h3>
-        <Row label="視点操作の感度" value={s.mouseSensitivity.toFixed(2)}>
+        <Row label="マウス感度" value={s.mouseSensitivity.toFixed(2)} hint="Source SDK 2013 と同じ感度です。初期値は 3.00 です。">
           <input
             type="range"
             className="w-full"
             min={SENSITIVITY_RANGE.min}
             max={SENSITIVITY_RANGE.max}
-            step={0.05}
+            step={0.01}
             value={s.mouseSensitivity}
             onChange={(e) => set({ mouseSensitivity: Number(e.target.value) })}
           />
         </Row>
+        {(navigator.maxTouchPoints > 0 || window.matchMedia('(any-pointer: coarse)').matches) && (
+          <Row label="タッチ感度" value={s.touchSensitivity.toFixed(2)}>
+            <input
+              type="range"
+              className="w-full"
+              min={SENSITIVITY_RANGE.min}
+              max={SENSITIVITY_RANGE.max}
+              step={0.05}
+              value={s.touchSensitivity}
+              onChange={(e) => set({ touchSensitivity: Number(e.target.value) })}
+            />
+          </Row>
+        )}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Toggle label="上下の視点操作を反転" checked={s.invertY} onChange={(v) => set({ invertY: v })} />
           <Toggle label="歩行時の視点の揺れ" checked={s.headBob} onChange={(v) => set({ headBob: v })} />
@@ -153,7 +216,7 @@ export function SettingsPanel({ getRenderSize }: { getRenderSize?: () => { width
 
       <button
         type="button"
-        onClick={() => settingsStore.set({ ...DEFAULT_SETTINGS })}
+        onClick={() => set({ ...DEFAULT_SETTINGS })}
         className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10"
       >
         初期設定に戻す

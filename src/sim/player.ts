@@ -92,11 +92,10 @@ export class Player {
     return true;
   }
 
-  /** マウスの移動量 (ピクセル) で視点を回す */
-  look(dx: number, dy: number, sensitivity: number, invertY: boolean): void {
-    const k = 0.0022 * sensitivity;
-    this.yaw -= dx * k;
-    this.pitch -= dy * k * (invertY ? -1 : 1);
+  /** 入力の相対移動量を角度に変換して視点を回す */
+  look(dx: number, dy: number, radiansPerUnit: number, invertY: boolean): void {
+    this.yaw -= dx * radiansPerUnit;
+    this.pitch -= dy * radiansPerUnit * (invertY ? -1 : 1);
     if (this.pitch > PITCH_LIMIT) this.pitch = PITCH_LIMIT;
     if (this.pitch < -PITCH_LIMIT) this.pitch = -PITCH_LIMIT;
     if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;

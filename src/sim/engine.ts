@@ -1,4 +1,4 @@
-import { Container3D, PointLight, View3D } from '@pixi/3d';
+import { Container3D, createDefaultGraph3D, PointLight, View3D } from '@pixi/3d';
 import type { Pass3D } from '@pixi/3d';
 import { FxaaEffect, SsaoEffect } from '@pixi/3d/extras';
 import { Application, RendererType } from 'pixi.js';
@@ -15,8 +15,8 @@ import type { PlayerInput } from './player';
 import { buildProps, prepareTerrain } from './props';
 import { setFacadeNight } from './facade';
 import type { Material3D } from '@pixi/3d';
-import { resolutionScale } from './settings';
-import type { Settings, ShadowLevel } from './settings';
+import { effectiveSamples, MSAA_SAMPLES, resolutionScale } from './settings';
+import type { MsaaSamples, Settings, ShadowLevel } from './settings';
 import { Sky } from './sky';
 import { buildTerrain } from './terrain';
 import type { CampusData, Landmark } from './types';
@@ -52,6 +52,10 @@ const [spawnX, spawnZ] = gatePoint(-6.7, -0.45);
 const [lookX, lookZ] = gatePoint(12, 1.2);
 const SPAWN = { x: spawnX, z: spawnZ, yaw: (Math.atan2(spawnX - lookX, spawnZ - lookZ) * 180) / Math.PI };
 
+// Source SDK 2013 の標準 m_yaw / m_pitch は感度1・1カウントあたり 0.022°。
+const MOUSE_RADIANS_PER_COUNT = (0.022 * Math.PI) / 180;
+const TOUCH_RADIANS_PER_PIXEL = 0.0066;
+
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
 export class Simulator {
@@ -70,6 +74,7 @@ export class Simulator {
   private readonly keys = new Set<string>();
   private readonly input: PlayerInput = { forward: 0, strafe: 0, run: false, jump: false, up: 0 };
   private settings: Settings;
+  private msaaSupport = { standard: [] as MsaaSamples[], hdr: [] as MsaaSamples[] };
   private mode: 'mouse' | 'touch' | null = null;
   private readonly touchInput: PlayerInput = { forward: 0, strafe: 0, run: false, jump: false, up: 0 };
   private touchJumpQueued = false;
@@ -123,6 +128,7 @@ export class Simulator {
 
     this.travelDestinations = findTravelDestinations(data.json, this.landmarks, this.player);
 
+    this.readMsaaSupport();
     this.bindInput();
     this.applySettings(settings, true);
     this.player.applyTo(view.camera);
@@ -140,7 +146,7 @@ export class Simulator {
     await app.init({
       preference: 'webgl',
       resizeTo: host,
-      antialias: true,
+      antialias: false,
       autoDensity: true,
       resolution: resolutionScale(settings.resolution, host.clientHeight || window.innerHeight, window.devicePixelRatio || 1),
       backgroundColor: 0xbfd0df,
@@ -152,6 +158,9 @@ export class Simulator {
 
     const view = new View3D({
       autoResize: true,
+      // MSAA はシーン用のバッファに適用し、解決済みの色をキャンバスに出力する。
+      graph: (renderer, options) =>
+        createDefaultGraph3D(renderer, { ...options, composite: options.composite || renderer.view.antialias }).graph,
       toneMapping: 'aces',
       exposure: 1.0,
       shadowQuality: settings.shadows === 'off' ? 'medium' : SHADOW_QUALITY[settings.shadows],
@@ -222,8 +231,9 @@ export class Simulator {
     const { view, app } = this;
 
     view.camera.fov = settings.fov;
+    if (force || prev.fpsLimit !== settings.fpsLimit) app.ticker.maxFPS = settings.fpsLimit;
 
-    if (force || prev.resolution !== settings.resolution) this.applyResolution();
+    if (force || prev.resolution !== settings.resolution || prev.antialiasing !== settings.antialiasing) this.applyResolution();
 
     if (force || prev.shadows !== settings.shadows) {
       this.sky.setShadows(settings.shadows !== 'off');
@@ -249,16 +259,47 @@ export class Simulator {
       this.sky.setFogDensity(0.83 / range);
     }
 
-    if (force || prev.ambientOcclusion !== settings.ambientOcclusion) {
+    if (
+      force ||
+      prev.ambientOcclusion !== settings.ambientOcclusion ||
+      prev.antialiasing !== settings.antialiasing ||
+      prev.msaaSamples !== settings.msaaSamples
+    ) {
+      const samples =
+        settings.antialiasing === 'msaa'
+          ? effectiveSamples(settings.msaaSamples, this.supportedMsaa(settings.ambientOcclusion))
+          : undefined;
+      if (app.renderer.type === RendererType.WEBGL) {
+        app.renderer.view.antialias = samples !== undefined;
+        if (samples) (app.renderer as WebGLRenderer).texture.msaaSamples = samples;
+      }
       const passes: Pass3D[] = [];
       if (settings.ambientOcclusion && this.canRenderFloat()) {
         this.ssao ??= new SsaoEffect({ radius: 0.9, intensity: 1.1, fadeDistance: [60, 120] });
+        passes.push(this.ssao);
+      }
+      if (settings.antialiasing === 'fxaa') {
         this.fxaa ??= new FxaaEffect();
-        passes.push(this.ssao, this.fxaa);
+        passes.push(this.fxaa);
       }
       view.passes = passes;
     }
-    void app;
+  }
+
+  supportedMsaa(ambientOcclusion: boolean): readonly MsaaSamples[] {
+    return ambientOcclusion && this.canRenderFloat() ? this.msaaSupport.hdr : this.msaaSupport.standard;
+  }
+
+  private readMsaaSupport(): void {
+    if (this.app.renderer.type !== RendererType.WEBGL) return;
+    const { gl } = this.app.renderer as WebGLRenderer;
+    if (!gl.getInternalformatParameter) return;
+    const counts = (format: number): Int32Array => gl.getInternalformatParameter(gl.RENDERBUFFER, format, gl.SAMPLES) ?? new Int32Array();
+    const depth = counts(gl.DEPTH24_STENCIL8);
+    const color = counts(gl.RGBA8);
+    const standard = MSAA_SAMPLES.filter((n) => depth.includes(n) && color.includes(n));
+    const hdrColor = this.canRenderFloat() ? counts(gl.RGBA16F) : new Int32Array();
+    this.msaaSupport = { standard, hdr: standard.filter((n) => hdrColor.includes(n)) };
   }
 
   private canRenderFloat(): boolean {
@@ -273,8 +314,11 @@ export class Simulator {
     const h = host?.clientHeight || window.innerHeight;
     const scale = resolutionScale(this.settings.resolution, h, window.devicePixelRatio || 1);
     // GPU のテクスチャ上限を超えないようにする
-    const maxDim = 8192;
+    const renderer = this.app.renderer;
+    const gl = renderer.type === RendererType.WEBGL ? (renderer as WebGLRenderer).gl : null;
+    const maxDim = gl ? Math.min(8192, gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)) : 8192;
     const safe = Math.min(scale, maxDim / Math.max(w, h));
+    this.view.resolution = this.settings.antialiasing === 'ssaa' ? Math.min(safe * 2, maxDim / Math.max(w, h)) : 'inherit';
     this.app.renderer.resize(w, h, safe);
   }
 
@@ -295,6 +339,10 @@ export class Simulator {
       this.disposers.push(() => target.removeEventListener(type, fn as EventListener));
     };
 
+    on(canvas, 'webglcontextrestored' as keyof DocumentEventMap, () => {
+      this.readMsaaSupport();
+      this.applySettings(this.settings, true);
+    });
     on(document, 'pointerlockchange', () => {
       if (this.mode === 'touch') return;
       const locked = document.pointerLockElement === canvas;
@@ -304,7 +352,7 @@ export class Simulator {
     });
     on(document, 'mousemove', (e) => {
       if (this.mode !== 'mouse') return;
-      this.player.look(e.movementX, e.movementY, this.settings.mouseSensitivity, this.settings.invertY);
+      this.player.look(e.movementX, e.movementY, this.settings.mouseSensitivity * MOUSE_RADIANS_PER_COUNT, this.settings.invertY);
     });
     on(document, 'keydown', (e) => {
       if (this.mode !== 'mouse') return;
@@ -327,16 +375,16 @@ export class Simulator {
   }
 
   /** マウスを捕まえて操作を始める (ユーザー操作のイベント内で呼ぶこと) */
-  requestLock(): void {
+  async requestLock(): Promise<void> {
     const canvas = this.app.canvas as HTMLCanvasElement & {
       requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void;
     };
     try {
       // 可能なら OS のマウス加速を外した生の移動量を使う
-      const result = canvas.requestPointerLock({ unadjustedMovement: true });
-      if (result && typeof result.catch === 'function') result.catch(() => void canvas.requestPointerLock());
-    } catch {
-      void canvas.requestPointerLock();
+      await canvas.requestPointerLock({ unadjustedMovement: true });
+    } catch (error) {
+      if (!(error instanceof TypeError || (error instanceof DOMException && error.name === 'NotSupportedError'))) throw error;
+      await canvas.requestPointerLock();
     }
   }
 
@@ -378,7 +426,7 @@ export class Simulator {
 
   lookTouch(dx: number, dy: number): void {
     if (this.mode !== 'touch') return;
-    this.player.look(dx, dy, this.settings.mouseSensitivity * 3, this.settings.invertY);
+    this.player.look(dx, dy, this.settings.touchSensitivity * TOUCH_RADIANS_PER_PIXEL, this.settings.invertY);
   }
 
   toggleFlight(): void {
