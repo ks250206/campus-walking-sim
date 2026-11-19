@@ -181,17 +181,30 @@ export function SettingsPanel({
 
       <section className="space-y-4">
         <h3 className="text-xs font-semibold tracking-widest text-white/50">操作</h3>
-        <Row label="視点操作の感度" value={s.mouseSensitivity.toFixed(2)}>
+        <Row label="マウス感度" value={s.mouseSensitivity.toFixed(2)} hint="Source SDK 2013 と同じ感度です。初期値は 3.00 です。">
           <input
             type="range"
             className="w-full"
             min={SENSITIVITY_RANGE.min}
             max={SENSITIVITY_RANGE.max}
-            step={0.05}
+            step={0.01}
             value={s.mouseSensitivity}
             onChange={(e) => set({ mouseSensitivity: Number(e.target.value) })}
           />
         </Row>
+        {(navigator.maxTouchPoints > 0 || window.matchMedia('(any-pointer: coarse)').matches) && (
+          <Row label="タッチ感度" value={s.touchSensitivity.toFixed(2)}>
+            <input
+              type="range"
+              className="w-full"
+              min={SENSITIVITY_RANGE.min}
+              max={SENSITIVITY_RANGE.max}
+              step={0.05}
+              value={s.touchSensitivity}
+              onChange={(e) => set({ touchSensitivity: Number(e.target.value) })}
+            />
+          </Row>
+        )}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Toggle label="上下の視点操作を反転" checked={s.invertY} onChange={(v) => set({ invertY: v })} />
           <Toggle label="歩行時の視点の揺れ" checked={s.headBob} onChange={(v) => set({ headBob: v })} />

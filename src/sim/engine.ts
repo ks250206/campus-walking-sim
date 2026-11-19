@@ -52,6 +52,10 @@ const [spawnX, spawnZ] = gatePoint(-6.7, -0.45);
 const [lookX, lookZ] = gatePoint(12, 1.2);
 const SPAWN = { x: spawnX, z: spawnZ, yaw: (Math.atan2(spawnX - lookX, spawnZ - lookZ) * 180) / Math.PI };
 
+// Source SDK 2013 の標準 m_yaw / m_pitch は感度1・1カウントあたり 0.022°。
+const MOUSE_RADIANS_PER_COUNT = (0.022 * Math.PI) / 180;
+const TOUCH_RADIANS_PER_PIXEL = 0.0066;
+
 const nextFrame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
 export class Simulator {
@@ -348,7 +352,7 @@ export class Simulator {
     });
     on(document, 'mousemove', (e) => {
       if (this.mode !== 'mouse') return;
-      this.player.look(e.movementX, e.movementY, this.settings.mouseSensitivity, this.settings.invertY);
+      this.player.look(e.movementX, e.movementY, this.settings.mouseSensitivity * MOUSE_RADIANS_PER_COUNT, this.settings.invertY);
     });
     on(document, 'keydown', (e) => {
       if (this.mode !== 'mouse') return;
@@ -422,7 +426,7 @@ export class Simulator {
 
   lookTouch(dx: number, dy: number): void {
     if (this.mode !== 'touch') return;
-    this.player.look(dx, dy, this.settings.mouseSensitivity * 3, this.settings.invertY);
+    this.player.look(dx, dy, this.settings.touchSensitivity * TOUCH_RADIANS_PER_PIXEL, this.settings.invertY);
   }
 
   toggleFlight(): void {

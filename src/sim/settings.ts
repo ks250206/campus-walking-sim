@@ -20,8 +20,9 @@ export interface Settings {
   antialiasing: Antialiasing;
   msaaSamples: MsaaSamples;
   fpsLimit: FpsLimit;
-  /** 視点操作の感度 (1 が標準) */
+  /** マウス感度 (Source SDK 2013 の sensitivity と同じ単位) */
   mouseSensitivity: number;
+  touchSensitivity: number;
   /** 上下の視点操作を反転 */
   invertY: boolean;
   /** 垂直視野角 (度) */
@@ -48,7 +49,8 @@ export const DEFAULT_SETTINGS: Settings = {
   antialiasing: 'msaa',
   msaaSamples: 4,
   fpsLimit: 0,
-  mouseSensitivity: 1,
+  mouseSensitivity: 3,
+  touchSensitivity: 1,
   invertY: false,
   fov: 68,
   shadows: prefersTouch ? 'off' : 'medium',
@@ -73,16 +75,32 @@ export const RESOLUTION_OPTIONS: { value: ResolutionPreset; label: string }[] = 
 export const FOV_RANGE = { min: 40, max: 110 };
 export const SENSITIVITY_RANGE = { min: 0.1, max: 20 };
 
-const STORAGE_KEY = 'campus-walking-sim.settings.v1';
+const STORAGE_KEY = 'campus-walking-sim.settings.v2';
+const LEGACY_STORAGE_KEY = 'campus-walking-sim.settings.v1';
 
 function load(): Settings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const saved = localStorage.getItem(STORAGE_KEY);
+    const raw = saved ?? localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<Settings>;
+    if (saved === null) {
+      // 旧版はマウスとタッチで一つの感度を共有していた。
+      parsed.touchSensitivity = parsed.mouseSensitivity;
+      if (Number(parsed.mouseSensitivity) === 1) parsed.mouseSensitivity = DEFAULT_SETTINGS.mouseSensitivity;
+    }
     const merged = { ...DEFAULT_SETTINGS, ...parsed };
     merged.fov = clamp(Number(merged.fov) || DEFAULT_SETTINGS.fov, FOV_RANGE.min, FOV_RANGE.max);
-    merged.mouseSensitivity = clamp(Number(merged.mouseSensitivity) || 1, SENSITIVITY_RANGE.min, SENSITIVITY_RANGE.max);
+    merged.mouseSensitivity = clamp(
+      Number(merged.mouseSensitivity) || DEFAULT_SETTINGS.mouseSensitivity,
+      SENSITIVITY_RANGE.min,
+      SENSITIVITY_RANGE.max,
+    );
+    merged.touchSensitivity = clamp(
+      Number(merged.touchSensitivity) || DEFAULT_SETTINGS.touchSensitivity,
+      SENSITIVITY_RANGE.min,
+      SENSITIVITY_RANGE.max,
+    );
     merged.visibility = clamp(Number(merged.visibility), 0, 1);
     merged.timeOfDay = clamp(Number(merged.timeOfDay), 5, 19);
     if (!RESOLUTION_OPTIONS.some((o) => o.value === merged.resolution)) merged.resolution = 'native';
